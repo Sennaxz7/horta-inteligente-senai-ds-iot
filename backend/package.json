@@ -1,0 +1,44 @@
+{
+  "name": "horta-inteligente-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend da Horta Inteligente — projeto acadêmico SENAI",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "setup:env": "node scripts/setup-env.js",
+    "db:migrate": "sequelize-cli db:migrate",
+    "db:migrate:status": "sequelize-cli db:migrate:status",
+    "db:migrate:undo": "sequelize-cli db:migrate:undo",
+    "test": "node --test tests/unit/*.test.js tests/http/*.test.js",
+    "test:postgres": "node scripts/test-postgres.js"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.4.0",
+    "pg": "^8.23.1",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.8",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.7"
+  },
+  "overrides": {
+    "sequelize": {
+      "uuid": "^11.1.1"
+    }
+  },
+  "devDependencies": {
+    "sequelize-cli": "^6.6.5",
+    "supertest": "^7.3.1"
+  }
+}
