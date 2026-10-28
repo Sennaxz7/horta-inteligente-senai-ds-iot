@@ -19,6 +19,7 @@ client.on("connect", () => {
 });
 
 client.on("message", (topicoRecebido, mensagem) => {
+    console.log("Mensagem recebida:", mensagem.toString());
     let dados;
 
     try{
@@ -28,31 +29,38 @@ client.on("message", (topicoRecebido, mensagem) => {
         return;
     }
 
-    const umidade = dados?.umidadeSoloPercentual;
+    const umidadeAr = dados?.umidadeArPercentual;
+    const tempC = dados?.temperaturaC;
+    const distancia = dados?.distanciaCm;
 
-    if(
-        dados?.simulado !== true ||
-        typeof umidade !== "number" ||
-        !Number.isFinite(umidade) ||
-        umidade < 0 ||
-        umidade > 100
-    ) {
-        console.log("Mensagem ignorada: leitura simulada inválida.");
-        return;
-    }
-    leitura.push(umidade);
+    
+    leitura.push({
+        umidadeAr,
+        tempC,  
+        distancia
+    });
 
     if (leitura.length > 100) {
         leitura.shift();
     }
+    const somaTemp = leitura.reduce((total, item) => total + item.tempC, 0);
+    const mediaTemp = somaTemp / leitura.length;
 
-    const soma = leitura.reduce((total, valor) => total + valor, 0);
-    const media = soma / leitura.length;
+    const somaUmidade = leitura.reduce((total, item) => total + item.umidadeAr, 0);
+    const mediaUmidade = somaUmidade / leitura.length;
+
+    const somaDist = leitura.reduce((total, item) => total + item.distancia, 0);
+    const mediaDist = somaDist / leitura.length
 
     console.log("\nTópico:", topicoRecebido);
-    console.log("Umidade recebida:", umidade + "%");
+    console.log("Umidade recebida:", umidadeAr + "%");
+    console.log("Temperatura: ", tempC + "C");
+    console.log("Distacia: ", distancia + "cm")
     console.log("Leituras na amostra:", leitura.length);
-    console.log("Média da amostra:", media.toFixed(2) + "%");
+    console.log("Média da umidade:", mediaUmidade.toFixed(2) + "%");
+    console.log("Média da temperatura:", mediaTemp.toFixed(2) + "C");
+    console.log("Média da distancia:", mediaDist.toFixed(2) + "cm");
+
 
 });
 
