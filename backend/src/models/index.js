@@ -56,6 +56,7 @@ function initializeModels(sequelize) {
     as: "especieConfirmada",
   });
   return {
+    ...require("./mqttModels")(sequelize),
     Usuario,
     Especie,
     FaseCrescimento,
