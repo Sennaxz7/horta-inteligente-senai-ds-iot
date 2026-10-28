@@ -1,0 +1,14 @@
+# Prefixo privado: configure MQTT_PREFIX=horta no backend e dispositivos.
+user horta-backend
+topic read horta/+/sensores
+topic read horta/+/status
+topic read horta/+/eventos
+topic read horta/+/config/ack
+topic write horta/+/config
+
+# O username de cada placa deve ser seu UUID de dispositivo.
+pattern write horta/%u/sensores
+pattern write horta/%u/status
+pattern write horta/%u/eventos
+pattern write horta/%u/config/ack
+pattern read horta/%u/config

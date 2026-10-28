@@ -8,3 +8,5 @@ backend/storage/uploads/*
 .local/
 *.log
 .DS_Store
+backend/mqtt/passwords
+backend/mqtt/certs/

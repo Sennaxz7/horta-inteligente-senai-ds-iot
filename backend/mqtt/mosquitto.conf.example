@@ -1,0 +1,10 @@
+# Modelo para broker PRIVADO. Ajuste caminhos, certificados e prefixo.
+listener 8883
+allow_anonymous false
+password_file /mosquitto/config/passwords
+acl_file /mosquitto/config/acl
+certfile /mosquitto/config/certs/fullchain.pem
+keyfile /mosquitto/config/certs/privkey.pem
+persistence true
+persistence_location /mosquitto/data/
+message_size_limit 16384
