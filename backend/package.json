@@ -8,6 +8,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "mqtt:simulate": "node scripts/simulate-mqtt.js",
+    "mqtt:setup": "node scripts/setup-mqtt.js",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "setup:env": "node scripts/setup-env.js",
