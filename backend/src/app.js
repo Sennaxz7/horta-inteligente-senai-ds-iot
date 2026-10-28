@@ -38,6 +38,7 @@ function createApp({ env, authService, database, services, logger = console }) {
     }
   });
   app.use("/api/v1/auth", authRoutes({ env, authService }));
+  if (services?.mqttService) app.use("/api/v1", require("./routes/mqttRoutes")({ env, authService, services }));
   if (services)
     app.use("/api/v1", recursoRoutes({ env, authService, services }));
   app.use((req, res, next) =>
