@@ -65,6 +65,16 @@ function readEnvironment(source = process.env) {
       .default(900000),
     AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(1000).default(20),
     UPLOAD_DIR: z.string().min(1).default("storage/uploads"),
+    MQTT_ENABLED: z.enum(["true", "false"]).default("false").transform(v => v === "true"),
+    MQTT_TEST_MODE: z.enum(["true", "false"]).default("true").transform(v => v === "true"),
+    MQTT_URL: z.string().url().refine(v => {
+      const url = new URL(v);
+      return ["mqtt:", "mqtts:"].includes(url.protocol) && !url.username && !url.password;
+    }).default("mqtt://test.mosquitto.org:1883"),
+    MQTT_PREFIX: z.string().regex(/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/).max(150).default("senai/mateu-horta-7c91"),
+    MQTT_USERNAME: z.string().default(""),
+    MQTT_PASSWORD: z.string().default(""),
+    MQTT_CLIENT_ID: z.string().regex(/^[a-zA-Z0-9_-]*$/).max(100).default(""),
     PLANTNET_API_KEY: z.string().trim().default(""),
     PLANTNET_PROJECT: z
       .string()
@@ -78,7 +88,11 @@ function readEnvironment(source = process.env) {
       .default(20000),
   });
 
-  const parsed = schema.safeParse(source);
+  const parsed = schema.superRefine((env, ctx) => {
+    if (env.MQTT_ENABLED && !env.MQTT_TEST_MODE && (!env.MQTT_URL.startsWith("mqtts://") || !env.MQTT_USERNAME || !env.MQTT_PASSWORD || new URL(env.MQTT_URL).hostname === "test.mosquitto.org")) {
+      ctx.addIssue({ code: "custom", path: ["MQTT_URL"], message: "Modo real exige broker privado com TLS e credenciais." });
+    }
+  }).safeParse(source);
   if (!parsed.success) {
     // Não inclua valores das variáveis: podem conter credenciais.
     const fields = [

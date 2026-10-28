@@ -37,6 +37,7 @@ function createServices({ models, database, env, fetchImpl }) {
     catalogoService,
   });
   return {
+    mqttService: new (require("./MqttService"))({ models, database, env }),
     catalogoService,
     plantaService,
     crescimentoService,

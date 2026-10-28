@@ -8,6 +8,7 @@ const { createServices } = require("./services");
 async function start() {
   const env = loadEnvironment();
   const database = createDatabase(env);
+  let mqttService;
   try {
     const models = initializeModels(database);
     const { Usuario } = models;
@@ -21,12 +22,14 @@ async function start() {
       "historicos_crescimento",
       "fotos_plantas",
       "identificacoes_plantas",
+      "mqtt_dispositivos", "mqtt_zonas", "mqtt_mensagens", "mqtt_configuracoes",
     ];
     if (requiredTables.some((table) => !tables.includes(table)))
       throw new Error("Migrations pendentes. Execute npm run db:migrate.");
     const authService = new AuthService({ Usuario, env });
     await authService.initialize();
     const services = createServices({ models, database, env });
+    mqttService = services.mqttService;
     const app = createApp({ env, authService, database, services });
     const server = app.listen(env.PORT, env.HOST);
     await new Promise((resolve, reject) => {
@@ -34,6 +37,7 @@ async function start() {
       server.once("error", reject);
     });
     console.info(`API disponível em http://${env.HOST}:${env.PORT}/api/v1`);
+    mqttService.start();
 
     let stopping = false;
     const shutdown = () => {
@@ -43,6 +47,7 @@ async function start() {
       timer.unref();
       server.close(async () => {
         try {
+          await mqttService.stop();
           await database.close();
         } catch {
           process.exitCode = 1;
@@ -52,8 +57,9 @@ async function start() {
     };
     process.once("SIGINT", shutdown);
     process.once("SIGTERM", shutdown);
-    return { server, database };
+    return { server, database, mqttService };
   } catch (error) {
+    if (mqttService) await mqttService.stop();
     await database.close();
     throw error;
   }
