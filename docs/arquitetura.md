@@ -1,6 +1,6 @@
 # Arquitetura aprovada
 
-Este documento registra a estrutura validada antes da implementação. Infraestrutura, autenticação, catálogos, plantas, crescimento, fotos e identificação estão implementados. Perfis, dispositivos, zonas, MQTT, sensores, irrigações e dashboard permanecem planejados.
+Este documento registra a estrutura validada antes da implementação. Infraestrutura, autenticação, catálogos, plantas, crescimento, fotos e identificação estão implementados. A camada MQTT implementa dispositivos, zonas, leituras, status/eventos e configurações de monitoramento com ACK; veja `mqtt.md` para contrato e limites. Perfis agronômicos, controle físico de irrigação e dashboard permanecem planejados.
 
 ## Responsabilidades
 
