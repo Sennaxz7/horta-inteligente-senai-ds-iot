@@ -43,6 +43,8 @@ const client = mqtt.connect(
 let intervalMs = 5000;
 let timer;
 let tick = 0;
+let irrigation;
+let irrigationTimer;
 const send = (suffix, data, retain = false) =>
   client.publish(`${base}/${suffix}`, JSON.stringify(data), { qos: 1, retain });
 function readings() {
@@ -55,6 +57,18 @@ function readings() {
     distanciaAguaCm: [15, 17, 20, 25, 29][tick % 5],
   });
   tick++;
+  // Demonstração opcional: publica eventos, sem controlar bomba ou inferir consumo.
+  if (process.env.MQTT_SIM_IRRIGACOES === "true" && !irrigation && tick % 6 === 0) {
+    irrigation = randomUUID();
+    send("eventos", { ...envelope(), zonaId: zoneId, tipo: "IRRIGACAO_INICIADA", irrigacaoId: irrigation });
+    const execution = irrigation;
+    const ended = { ...envelope(), zonaId: zoneId, tipo: "IRRIGACAO_FINALIZADA", irrigacaoId: execution, resultado: "CONCLUIDA", duracaoSegundos: 2 };
+    irrigationTimer = setTimeout(() => {
+      ended.medidoEm = new Date().toISOString();
+      send("eventos", ended);
+      irrigation = null;
+    }, 2000);
+  }
   console.log(`Leitura simulada ${tick} publicada.`);
 }
 function schedule() {
@@ -103,6 +117,7 @@ client.on("message", (topic, payload, packet) => {
 client.on("error", () => console.error("Simulador: falha de conexão MQTT."));
 process.once("SIGINT", () => {
   clearInterval(timer);
+  clearTimeout(irrigationTimer);
   if (!client.connected) return client.end(true);
   send("status", { ...envelope(), estado: "OFFLINE" }, true);
   client.end(false);
