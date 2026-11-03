@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "perfis:importar": "node scripts/import-reference-profile.js",
     "mqtt:simulate": "node scripts/simulate-mqtt.js",
     "mqtt:setup": "node scripts/setup-mqtt.js",
     "start": "node src/server.js",

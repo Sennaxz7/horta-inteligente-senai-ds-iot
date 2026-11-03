@@ -6,8 +6,9 @@ const AppError = require("../utils/AppError");
 const { pageOptions, paginated } = require("../utils/pagination");
 
 class MqttService {
-  constructor({ models, database, env, logger = console, connect = mqtt.connect }) {
+  constructor({ models, database, env, irrigacaoService, logger = console, connect = mqtt.connect }) {
     Object.assign(this, { models, database, env, logger, connect });
+    this.irrigacaoService = irrigacaoService || new (require("./IrrigacaoService"))({ models });
     this.connected = false;
     this.pending = new Set();
   }
@@ -84,6 +85,7 @@ class MqttService {
         config = await this.models.ConfiguracaoMqtt.findOne({ where: { id: data.configuracaoId, dispositivoId: deviceId, zonaId: data.zonaId }, transaction, lock: transaction.LOCK.UPDATE });
         if (!config) return false;
       }
+      if (type === "eventos" && !await this.irrigacaoService.record(data, zone, transaction)) return false;
       const values = { ...data };
       if (type === "sensores") {
         values.nivelAguaPercentual = null;

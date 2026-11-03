@@ -23,6 +23,7 @@ async function start() {
       "fotos_plantas",
       "identificacoes_plantas",
       "mqtt_dispositivos", "mqtt_zonas", "mqtt_mensagens", "mqtt_configuracoes",
+      "perfis_irrigacao", "plantas_perfis_irrigacao", "registros_irrigacao",
     ];
     if (requiredTables.some((table) => !tables.includes(table)))
       throw new Error("Migrations pendentes. Execute npm run db:migrate.");

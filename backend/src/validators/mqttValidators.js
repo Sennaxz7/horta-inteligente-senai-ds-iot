@@ -63,8 +63,21 @@ module.exports = {
         "RESERVATORIO_BAIXO",
       ]),
       duracaoSegundos: z.number().min(0).max(86400).optional(),
+      irrigacaoId: uuid.optional(),
+      configuracaoId: uuid.optional(),
+      resultado: z.enum(["CONCLUIDA", "FALHA"]).optional(),
+      motivoFalha: z.string().trim().min(1).max(2000).optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((v, ctx) => {
+      const irrigation = ["IRRIGACAO_INICIADA", "IRRIGACAO_FINALIZADA"].includes(v.tipo);
+      const end = v.tipo === "IRRIGACAO_FINALIZADA";
+      const invalid = (!irrigation && (v.irrigacaoId || v.configuracaoId)) ||
+        (!end && (v.resultado || v.motivoFalha)) ||
+        ((v.resultado || v.motivoFalha || v.configuracaoId) && !v.irrigacaoId) ||
+        (v.motivoFalha && v.resultado !== "FALHA");
+      if (invalid) ctx.addIssue({ code: "custom", message: "Campos de execução incompatíveis com o evento." });
+    }),
   ack: z
     .object({
       ...base,
