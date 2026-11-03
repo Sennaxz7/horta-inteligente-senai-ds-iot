@@ -1,5 +1,7 @@
 # Contrato HTTP — etapas 1–3
 
+Rotas adicionais: [dispositivos e monitoramento MQTT](mqtt.md) e [perfis de irrigação e histórico de execuções](irrigacao.md). Os guias vinculados documentam os respectivos contratos, campos e regras de acesso.
+
 Base: `/api/v1`. Corpos usam `Content-Type: application/json`, exceto o upload de foto, que usa multipart. Campos desconhecidos são rejeitados. O limite do corpo JSON é 16 KiB.
 
 ## Rotas implementadas

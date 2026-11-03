@@ -8,7 +8,7 @@ O código da API está em `backend/`. A pasta `frontend/` está reservada para a
 cd "C:\Users\mateu\OneDrive\Documentos\ChatGPT\Projeto Senai\backend"
 ```
 
-**Implementado:** infraestrutura, autenticação JWT, catálogos, plantas, crescimento, fotos e integração PlantNet; comunicação MQTT com dispositivos/zonas, leituras de solo e reservatório, histórico persistente, status, eventos, configurações de monitoramento e confirmação. Consulte o [guia MQTT](docs/mqtt.md) para executar a demonstração sem sensores. Perfis agronômicos, acionamento físico, firmware e dashboard permanecem para as próximas etapas.
+**Implementado:** infraestrutura, autenticação JWT, catálogos, plantas, crescimento, fotos e integração PlantNet; comunicação MQTT com dispositivos/zonas, leituras de solo e reservatório, histórico persistente, status, eventos, configurações de monitoramento e confirmação; perfis de irrigação pessoais/de referência, associação versionada à planta e histórico de execuções reportadas. Consulte o [guia MQTT](docs/mqtt.md) e o [guia de perfis e irrigações](docs/irrigacao.md). Acionamento físico, controle PI/PID, firmware e dashboard permanecem para as próximas etapas. A automação continua desabilitada.
 
 ## Requisitos
 
@@ -171,7 +171,7 @@ Exemplo dos corpos JSON:
 
 Identificar gera sugestões; confirmar altera a espécie. Os scores são armazenados entre 0 e 1. Identificação manual usa confiança nula. Falhas da integração são registradas com códigos seguros, sem guardar a resposta bruta que poderia conter a chave. Não há execução automática de jobs pendentes após reiniciar: uma identificação abandonada permite nova tentativa depois do timeout configurado mais 60 segundos.
 
-`DELETE /plantas/:id` arquiva a planta, preserva fotos/históricos e impede novas alterações. As listagens mostram ativas por padrão; `arquivadas=true` lista as arquivadas. O proprietário continua podendo consultar seus registros. Perfis e irrigação automática ainda não estão implementados.
+`DELETE /plantas/:id` arquiva a planta, preserva fotos/históricos e impede novas alterações. As listagens mostram ativas por padrão; `arquivadas=true` lista as arquivadas. O proprietário continua podendo consultar seus registros. Perfis e histórico de irrigações estão disponíveis conforme o [guia de irrigação](docs/irrigacao.md); irrigação automática permanece desabilitada.
 
 Detalhes de filtros, formatos e erros: [contrato HTTP](docs/api.md). Contrato externo consultado: [identificação da PlantNet](https://my.plantnet.org/doc/api/identify).
 

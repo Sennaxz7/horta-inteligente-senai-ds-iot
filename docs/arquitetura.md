@@ -1,6 +1,6 @@
 # Arquitetura aprovada
 
-Este documento registra a estrutura validada antes da implementação. Infraestrutura, autenticação, catálogos, plantas, crescimento, fotos e identificação estão implementados. A camada MQTT implementa dispositivos, zonas, leituras, status/eventos e configurações de monitoramento com ACK; veja `mqtt.md` para contrato e limites. Perfis agronômicos, controle físico de irrigação e dashboard permanecem planejados.
+Este documento registra a estrutura validada antes da implementação. Infraestrutura, autenticação, catálogos, plantas, crescimento, fotos e identificação estão implementados. A camada MQTT implementa dispositivos, zonas, leituras, status/eventos e configurações de monitoramento com ACK; veja `mqtt.md` para contrato e limites. Perfis pessoais e de referência, associação versionada à planta e histórico de execuções reportadas estão implementados; consulte `irrigacao.md`. Controle físico, sintonia PI/PID e dashboard permanecem planejados. A validação de perfil é declarada pelo usuário/operador; não habilita automação.
 
 ## Responsabilidades
 
@@ -84,5 +84,5 @@ Listagens terão paginação e filtros apropriados. Downloads de fotos serão au
 1. Infraestrutura PostgreSQL/Sequelize e autenticação JWT — concluída.
 2. Catálogos e CRUD de plantas — concluída.
 3. Fotos, crescimento e identificação PlantNet — concluída; testes externos simulados, chamada real depende de chave válida.
-4. Perfis, dispositivos, zonas e MQTT.
-5. Leituras, irrigações, dashboard e validação integrada.
+4. Perfis pessoais/de referência, dispositivos, zonas e MQTT — implementados; configurações MQTT ainda são somente de monitoramento.
+5. Leituras e histórico de irrigações reportadas — implementados. Controle físico, configuração efetiva de irrigação, histórico unificado e dashboard permanecem pendentes.

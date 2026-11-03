@@ -1,6 +1,6 @@
 # MQTT da Horta Inteligente
 
-O backend agora assina MQTT, valida e persiste leituras, status, eventos e confirmações no PostgreSQL. O simulador representa uma placa ESP32. Não há controle elétrico de bomba nem firmware dependente de modelo de sensor nesta entrega. Configurações aceitam apenas `automacaoHabilitada: false`; perfis agronômicos validados e firmware com proteções locais são necessários antes de permitir automação.
+O backend agora assina MQTT, valida e persiste leituras, status, eventos e confirmações no PostgreSQL. O simulador representa uma placa ESP32. Não há controle elétrico de bomba nem firmware dependente de modelo de sensor nesta entrega. Configurações aceitam apenas `automacaoHabilitada: false`; perfis e firmware com proteções locais são necessários antes de permitir automação. O cadastro de perfis e a correlação de eventos de irrigação estão documentados em [perfis e histórico](irrigacao.md); a seleção de um perfil não modifica a configuração de monitoramento.
 
 ## Início rápido no Windows
 
@@ -79,7 +79,7 @@ Campos específicos adicionados ao envelope:
 
 * `sensores`: `zonaId` UUID, `umidadeSoloPercentual` número 0–100 ou null, `distanciaAguaCm` número positivo até 10000 ou null. Zona deve pertencer ao dispositivo. Null representa ausência de leitura; não use zero para falha de sensor.
 * `status`: `estado` ONLINE ou OFFLINE; sem zona. Use Last Will OFFLINE. Timestamp do Last Will pode representar a criação da conexão, não o momento exato da queda; `recebidoEm` é o instante de observação pelo backend. Último status não garante conectividade atual: compare também idade da última leitura.
-* `eventos`: `zonaId`, `tipo` IRRIGACAO_INICIADA, IRRIGACAO_FINALIZADA, FALHA_SENSOR ou RESERVATORIO_BAIXO; `duracaoSegundos` opcional, 0–86400. São registros informativos e não acionam equipamento.
+* `eventos`: `zonaId`, `tipo` IRRIGACAO_INICIADA, IRRIGACAO_FINALIZADA, FALHA_SENSOR ou RESERVATORIO_BAIXO; `duracaoSegundos` opcional, 0–86400. Novos eventos de irrigação devem repetir `irrigacaoId` no início e fim; finalização aceita `resultado` CONCLUIDA/FALHA e `motivoFalha` opcional quando FALHA. `configuracaoId` é opcional para referenciar uma configuração do mesmo dispositivo/zona. Os campos novos exigem `irrigacaoId`; eventos antigos sem esse ID continuam somente no histórico geral. Veja [contrato completo](irrigacao.md). São registros informativos e não acionam equipamento.
 * `config/ack`: `zonaId`, `configuracaoId` UUID e `aplicada` booleano. ACK de outro dispositivo/zona não é aceito.
 
 ### Reservatório
@@ -121,7 +121,7 @@ Todos os recursos são filtrados pelo proprietário autenticado; IDs de terceiro
 | GET `/dispositivos/:id/zonas/:zonaId/configuracao` | última configuração e estado do ACK |
 | POST `/dispositivos/:id/zonas/:zonaId/sincronizacao` | publica nova versão; retorna 202 |
 
-Vínculo com planta é opcional; quando informado, deve pertencer ao mesmo usuário, estar ativa e não ter outra zona. Cada leitura conserva a planta vinculada no instante de recebimento, mesmo após mudar a zona. Os históricos MQTT não substituem os futuros perfis de irrigação e dashboard.
+Vínculo com planta é opcional; quando informado, deve pertencer ao mesmo usuário, estar ativa e não ter outra zona. Cada leitura conserva a planta vinculada no instante de recebimento, mesmo após mudar a zona. Perfis e histórico de irrigações possuem [rotas próprias](irrigacao.md); dashboard permanece planejado.
 
 ## Broker privado e hardware
 
