@@ -87,6 +87,7 @@ module.exports = {
     })
     .strict(),
   params: z.object({ id: uuid, zonaId: uuid.optional() }),
+  vinculoZona: z.object({ dispositivoId: uuid, zonaId: uuid }).strict(),
   pagination: z
     .object({
       pagina: z.coerce.number().int().min(1).max(100000).default(1),

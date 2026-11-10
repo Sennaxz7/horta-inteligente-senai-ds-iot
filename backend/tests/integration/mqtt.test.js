@@ -67,6 +67,32 @@ test("vínculo de planta preserva histórico e bloqueia associação de terceiro
   await api("get", `/plantas/${plantaId}/leituras`, null, otherToken).expect(404);
   await api("patch", `/dispositivos/${device.id}`, { nome: "Renomeado", simulado: false }).expect(422);
 });
+test("PUT de zona pela planta preserva calibração, é idempotente e impede vínculos conflitantes", async () => {
+  const plant = async name => (await api("post", "/plantas", { nome: name, faseAtual: "MUDA" }).expect(201)).body.data.planta;
+  const first = await plant("Planta para vínculo");
+  const second = await plant("Outra planta");
+  const archived = await plant("Planta arquivada");
+  await api("delete", `/plantas/${archived.id}`).expect(204);
+  const calibration = { distanciaVazioCm: 25, distanciaCheioCm: 5 };
+  const createZone = async () => (await api("post", `/dispositivos/${device.id}/zonas`, { nome: "Zona livre", calibracao: calibration }).expect(201)).body.data;
+  const target = await createZone();
+  const alternative = await createZone();
+  const body = { dispositivoId: device.id, zonaId: target.id };
+  const route = `/plantas/${first.id}/zona`;
+  await request(app).put(`/api/v1${route}`).send(body).expect(401);
+  await api("put", route, { ...body, zonaId: "invalido" }).expect(422);
+  await api("put", route, body, otherToken).expect(404);
+  await api("put", `/plantas/${archived.id}/zona`, body).expect(404);
+  const saved = (await api("put", route, body).expect(200)).body.data;
+  assert.equal(saved.plantaId, first.id);
+  assert.equal(saved.nome, target.nome);
+  assert.deepEqual(saved.calibracao, calibration);
+  assert.deepEqual((await api("put", route, body).expect(200)).body.data, saved);
+  await api("put", `/plantas/${second.id}/zona`, body).expect(409);
+  await api("put", route, { ...body, zonaId: alternative.id }).expect(409);
+  assert.equal((await models.ZonaIrrigacao.findByPk(target.id)).plantaId, first.id);
+  assert.equal((await models.ZonaIrrigacao.findByPk(alternative.id)).plantaId, null);
+});
 test("MQTT TCP real: broker local entrega leitura e configuração recebe ACK", { timeout: 20000 }, async t => {
   const binary = process.platform === "win32" ? "C:/Program Files/mosquitto/mosquitto.exe" : "/usr/sbin/mosquitto";
   if (!fs.existsSync(binary)) return t.skip("Mosquitto local não instalado");

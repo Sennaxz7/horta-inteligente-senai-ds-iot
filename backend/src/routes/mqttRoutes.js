@@ -134,6 +134,12 @@ module.exports = ({ env, authService, services }) => {
           ),
         }),
   );
+  router.put("/plantas/:id/zona", params, validate(s.vinculoZona), async (req, res) => {
+    const zone = await service.bindPlantZone(
+      req.validatedParams.id, req.usuario.id, req.validatedBody,
+    );
+    res.json({ data: zone });
+  });
   router.get("/plantas/:id/leituras", params, page, async (req, res) => {
     const plant = await models.Planta.findOne({
       where: { id: req.params.id, usuarioId: req.usuario.id },

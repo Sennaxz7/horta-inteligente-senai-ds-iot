@@ -49,14 +49,20 @@ class MqttService {
     this.client = null;
   }
 
-  async owned(id, usuarioId) {
-    const device = await this.models.Dispositivo.findOne({ where: { id, usuarioId, arquivadoEm: null } });
+  async owned(id, usuarioId, transaction) {
+    const device = await this.models.Dispositivo.findOne({
+      where: { id, usuarioId, arquivadoEm: null }, transaction,
+      ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}),
+    });
     if (!device) throw new AppError(404, "DEVICE_NOT_FOUND", "Dispositivo não encontrado.");
     return device;
   }
 
-  async zone(deviceId, zonaId) {
-    const zone = await this.models.ZonaIrrigacao.findOne({ where: { id: zonaId, dispositivoId: deviceId } });
+  async zone(deviceId, zonaId, transaction) {
+    const zone = await this.models.ZonaIrrigacao.findOne({
+      where: { id: zonaId, dispositivoId: deviceId }, transaction,
+      ...(transaction ? { lock: transaction.LOCK.UPDATE } : {}),
+    });
     if (!zone) throw new AppError(404, "ZONE_NOT_FOUND", "Zona não encontrada.");
     return zone;
   }
@@ -130,6 +136,27 @@ class MqttService {
         return zone.update(input, { transaction });
       }
       return this.models.ZonaIrrigacao.create({ ...input, dispositivoId: id }, { transaction });
+    });
+  }
+
+  async bindPlantZone(plantaId, usuarioId, { dispositivoId, zonaId }) {
+    return this.database.transaction(async transaction => {
+      const lock = transaction.LOCK.UPDATE;
+      // Mesmo bloqueio de saveZone: serializa mudanças de vínculo do usuário.
+      await this.models.Usuario.findByPk(usuarioId, { transaction, lock });
+      await this.owned(dispositivoId, usuarioId, transaction);
+      const zone = await this.zone(dispositivoId, zonaId, transaction);
+      const plant = await this.models.Planta.findOne({
+        where: { id: plantaId, usuarioId, arquivadaEm: null }, transaction, lock,
+      });
+      if (!plant) throw new AppError(404, "PLANT_NOT_FOUND", "Planta não encontrada.");
+      if (zone.plantaId === plant.id) return zone;
+      if (zone.plantaId) throw new AppError(409, "ZONE_OCCUPIED", "Zona já vinculada a outra planta.");
+      const assigned = await this.models.ZonaIrrigacao.findOne({
+        where: { plantaId: plant.id }, transaction,
+      });
+      if (assigned) throw new AppError(409, "PLANT_HAS_ZONE", "Planta já vinculada a uma zona.");
+      return zone.update({ plantaId: plant.id }, { transaction });
     });
   }
 
