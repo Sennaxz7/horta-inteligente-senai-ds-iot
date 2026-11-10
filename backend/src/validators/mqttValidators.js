@@ -25,6 +25,11 @@ const config = z
     calibracaoReservatorio: calibracao.nullable(),
   })
   .strict();
+const zonaFields = {
+  nome: z.string().trim().min(1).max(120),
+  plantaId: uuid.nullable(),
+  calibracao: calibracao.nullable(),
+};
 module.exports = {
   dispositivo: z
     .object({
@@ -37,11 +42,13 @@ module.exports = {
     .strict(),
   zona: z
     .object({
-      nome: z.string().trim().min(1).max(120),
-      plantaId: uuid.nullable().default(null),
-      calibracao: calibracao.nullable().default(null),
+      ...zonaFields,
+      plantaId: zonaFields.plantaId.default(null),
+      calibracao: zonaFields.calibracao.default(null),
     })
     .strict(),
+  zonaPatch: z.object(zonaFields).strict().partial()
+    .refine(data => Object.keys(data).length > 0, "Informe ao menos um campo."),
   config,
   sensores: z
     .object({

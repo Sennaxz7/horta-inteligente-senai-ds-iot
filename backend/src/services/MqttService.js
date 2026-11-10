@@ -124,17 +124,15 @@ class MqttService {
     return this.database.transaction(async transaction => {
       const owner = await this.models.Usuario.findByPk(usuarioId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!owner) throw new AppError(404, "USER_NOT_FOUND", "Usuário não encontrado.");
-      await this.owned(id, usuarioId);
+      await this.owned(id, usuarioId, transaction);
+      const zone = zonaId ? await this.zone(id, zonaId, transaction) : null;
       if (input.plantaId) {
-        const plant = await this.models.Planta.findOne({ where: { id: input.plantaId, usuarioId, arquivadaEm: null }, transaction });
+        const plant = await this.models.Planta.findOne({ where: { id: input.plantaId, usuarioId, arquivadaEm: null }, transaction, lock: transaction.LOCK.UPDATE });
         if (!plant) throw new AppError(404, "PLANT_NOT_FOUND", "Planta não encontrada.");
         const assigned = await this.models.ZonaIrrigacao.findOne({ where: { plantaId: input.plantaId }, transaction });
         if (assigned && assigned.id !== zonaId) throw new AppError(409, "PLANT_HAS_ZONE", "Planta já vinculada a uma zona.");
       }
-      if (zonaId) {
-        const zone = await this.zone(id, zonaId);
-        return zone.update(input, { transaction });
-      }
+      if (zone) return zone.update(input, { transaction });
       return this.models.ZonaIrrigacao.create({ ...input, dispositivoId: id }, { transaction });
     });
   }

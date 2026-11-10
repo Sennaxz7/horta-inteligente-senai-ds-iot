@@ -86,6 +86,16 @@ module.exports = ({ env, authService, services }) => {
         ),
       }),
   );
+  router.patch(
+    "/dispositivos/:id/zonas/:zonaId",
+    params,
+    validate(s.zonaPatch),
+    async (req, res) => {
+      const { id, zonaId } = req.validatedParams;
+      const zone = await service.saveZone(id, req.usuario.id, req.validatedBody, zonaId);
+      res.json({ data: zone });
+    },
+  );
   for (const [path, type] of [
     ["leituras", "sensores"],
     ["eventos", "eventos"],

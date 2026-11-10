@@ -121,6 +121,31 @@ test("DELETE de zona libera o vínculo sem apagar leituras ou irrigações", asy
   assert.equal(irrigations[0].irrigacaoId, event.irrigacaoId);
   assert.equal((await api("get", `/plantas/${next.id}/irrigacoes`).expect(200)).body.meta.total, 0);
 });
+test("PATCH de zona preserva campos omitidos, aceita null e valida acesso e vínculo", async () => {
+  const createPlant = async nome => (await api("post", "/plantas", { nome, faseAtual: "MUDA" }).expect(201)).body.data.planta;
+  const plant = await createPlant("Planta para edição");
+  const assigned = await createPlant("Planta em outra zona");
+  const calibration = { distanciaVazioCm: 28, distanciaCheioCm: 6 };
+  const zones = `/dispositivos/${device.id}/zonas`;
+  const target = (await api("post", zones, { nome: "Zona para edição", plantaId: plant.id, calibracao: calibration }).expect(201)).body.data;
+  await api("post", zones, { nome: "Outra zona", plantaId: assigned.id }).expect(201);
+  const path = `${zones}/${target.id}`;
+  await api("patch", path, { nome: "Sem acesso" }, otherToken).expect(404);
+  for (const body of [{}, { dispositivoId: device.id }, { calibracao: { distanciaCheioCm: 4 } }]) {
+    await api("patch", path, body).expect(422);
+  }
+  await api("patch", path, { plantaId: assigned.id }).expect(409);
+  const renamed = (await api("patch", path, { nome: "Vaso da varanda" }).expect(200)).body.data;
+  assert.equal(renamed.nome, "Vaso da varanda");
+  assert.equal(renamed.plantaId, plant.id);
+  assert.deepEqual(renamed.calibracao, calibration);
+  const unbound = (await api("patch", path, { plantaId: null }).expect(200)).body.data;
+  assert.equal(unbound.plantaId, null);
+  assert.deepEqual(unbound.calibracao, calibration);
+  const cleared = (await api("patch", path, { calibracao: null }).expect(200)).body.data;
+  assert.equal(cleared.calibracao, null);
+  assert.equal(cleared.nome, renamed.nome);
+});
 test("MQTT TCP real: broker local entrega leitura e configuração recebe ACK", { timeout: 20000 }, async t => {
   const binary = process.platform === "win32" ? "C:/Program Files/mosquitto/mosquitto.exe" : "/usr/sbin/mosquitto";
   if (!fs.existsSync(binary)) return t.skip("Mosquitto local não instalado");

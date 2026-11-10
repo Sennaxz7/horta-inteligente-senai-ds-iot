@@ -114,6 +114,7 @@ Todos os recursos são filtrados pelo proprietário autenticado; IDs de terceiro
 | POST `/dispositivos/:id/zonas` | `{nome, plantaId?, calibracao?}` |
 | GET `/dispositivos/:id/zonas` | zonas paginadas |
 | PUT `/dispositivos/:id/zonas/:zonaId` | substitui nome, vínculo e calibração; null desvincula |
+| PATCH `/dispositivos/:id/zonas/:zonaId` | altera apenas os campos enviados; retorna a zona em `data` |
 | PUT `/plantas/:id/zona` | vincula a planta a uma zona existente; mantém nome e calibração |
 | DELETE `/plantas/:id/zona` | libera a zona sem remover a planta, a zona ou seus históricos |
 | GET `/dispositivos/:id/leituras` | histórico paginado, incluindo nível calculado |
@@ -128,6 +129,8 @@ Vínculo com planta é opcional; quando informado, deve pertencer ao mesmo usuá
 Para vincular pela planta, envie `{"dispositivoId":"UUID_DO_DISPOSITIVO","zonaId":"UUID_DA_ZONA"}` ao `PUT /plantas/:id/zona`. O retorno é `200` com a zona em `data`. Repetir o mesmo vínculo retorna a zona sem alterá-la. Planta/dispositivo arquivado, recurso de terceiro ou zona fora do dispositivo retornam `404`. Uma zona ocupada por outra planta ou uma planta vinculada a outra zona retorna `409`. Leituras e irrigações anteriores mantêm seu vínculo original.
 
 O `DELETE /plantas/:id/zona` não recebe corpo. Retorna `204` inclusive se a planta já estiver sem zona, e `404` se ela não existir ou pertencer a outro usuário. O dono pode liberar vínculos mesmo com planta ou dispositivo arquivado. Apenas o vínculo atual é removido; o histórico continua associado à planta original.
+
+Para renomear uma zona sem alterar o restante, envie `{"nome":"Vaso da varanda"}` ao `PATCH /dispositivos/:id/zonas/:zonaId`. São aceitos `nome`, `plantaId` e `calibracao`, com pelo menos um campo. `plantaId: null` desfaz o vínculo e `calibracao: null` limpa a calibração. Ao enviar uma calibração, informe as duas distâncias: o objeto é substituído por inteiro. Planta já vinculada a outra zona retorna `409`; zona fora do dispositivo ou recursos indisponíveis ao usuário retornam `404`.
 
 ## Broker privado e hardware
 
