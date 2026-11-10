@@ -115,6 +115,7 @@ Todos os recursos são filtrados pelo proprietário autenticado; IDs de terceiro
 | GET `/dispositivos/:id/zonas` | zonas paginadas |
 | PUT `/dispositivos/:id/zonas/:zonaId` | substitui nome, vínculo e calibração; null desvincula |
 | PUT `/plantas/:id/zona` | vincula a planta a uma zona existente; mantém nome e calibração |
+| DELETE `/plantas/:id/zona` | libera a zona sem remover a planta, a zona ou seus históricos |
 | GET `/dispositivos/:id/leituras` | histórico paginado, incluindo nível calculado |
 | GET `/plantas/:id/leituras` | histórico da planta, preservado após mudança de zona |
 | GET `/dispositivos/:id/eventos` | eventos paginados |
@@ -125,6 +126,8 @@ Todos os recursos são filtrados pelo proprietário autenticado; IDs de terceiro
 Vínculo com planta é opcional; quando informado, deve pertencer ao mesmo usuário, estar ativa e não ter outra zona. Cada leitura conserva a planta vinculada no instante de recebimento, mesmo após mudar a zona. Perfis e histórico de irrigações possuem [rotas próprias](irrigacao.md); dashboard permanece planejado.
 
 Para vincular pela planta, envie `{"dispositivoId":"UUID_DO_DISPOSITIVO","zonaId":"UUID_DA_ZONA"}` ao `PUT /plantas/:id/zona`. O retorno é `200` com a zona em `data`. Repetir o mesmo vínculo retorna a zona sem alterá-la. Planta/dispositivo arquivado, recurso de terceiro ou zona fora do dispositivo retornam `404`. Uma zona ocupada por outra planta ou uma planta vinculada a outra zona retorna `409`. Leituras e irrigações anteriores mantêm seu vínculo original.
+
+O `DELETE /plantas/:id/zona` não recebe corpo. Retorna `204` inclusive se a planta já estiver sem zona, e `404` se ela não existir ou pertencer a outro usuário. O dono pode liberar vínculos mesmo com planta ou dispositivo arquivado. Apenas o vínculo atual é removido; o histórico continua associado à planta original.
 
 ## Broker privado e hardware
 

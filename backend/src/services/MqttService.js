@@ -160,6 +160,28 @@ class MqttService {
     });
   }
 
+  async unbindPlantZone(plantaId, usuarioId) {
+    await this.database.transaction(async transaction => {
+      const lock = transaction.LOCK.UPDATE;
+      // Serializa com as outras rotas de vínculo, inclusive a edição da zona.
+      await this.models.Usuario.findByPk(usuarioId, { transaction, lock });
+      const plant = await this.models.Planta.findOne({
+        where: { id: plantaId, usuarioId }, transaction,
+      });
+      if (!plant) throw new AppError(404, "PLANT_NOT_FOUND", "Planta não encontrada.");
+      const zone = await this.models.ZonaIrrigacao.findOne({
+        where: { plantaId }, transaction, lock,
+      });
+      if (!zone) return;
+      // Permite liberar vínculos antigos, mesmo se o dispositivo foi arquivado.
+      const device = await this.models.Dispositivo.findOne({
+        where: { id: zone.dispositivoId, usuarioId }, transaction,
+      });
+      if (!device) throw new AppError(404, "DEVICE_NOT_FOUND", "Dispositivo não encontrado.");
+      await zone.update({ plantaId: null }, { transaction });
+    });
+  }
+
   async history(id, usuarioId, query, type) {
     await this.owned(id, usuarioId);
     return paginated(await this.models.MensagemMqtt.findAndCountAll({ where: { dispositivoId: id, tipo: type }, ...pageOptions(query), order: [["medidoEm", "DESC"], ["id", "DESC"]] }), query);

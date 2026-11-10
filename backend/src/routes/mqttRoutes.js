@@ -140,6 +140,10 @@ module.exports = ({ env, authService, services }) => {
     );
     res.json({ data: zone });
   });
+  router.delete("/plantas/:id/zona", params, async (req, res) => {
+    await service.unbindPlantZone(req.validatedParams.id, req.usuario.id);
+    res.status(204).end();
+  });
   router.get("/plantas/:id/leituras", params, page, async (req, res) => {
     const plant = await models.Planta.findOne({
       where: { id: req.params.id, usuarioId: req.usuario.id },

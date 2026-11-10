@@ -93,6 +93,34 @@ test("PUT de zona pela planta preserva calibração, é idempotente e impede ví
   assert.equal((await models.ZonaIrrigacao.findByPk(target.id)).plantaId, first.id);
   assert.equal((await models.ZonaIrrigacao.findByPk(alternative.id)).plantaId, null);
 });
+test("DELETE de zona libera o vínculo sem apagar leituras ou irrigações", async () => {
+  const plant = async nome => (await api("post", "/plantas", { nome, faseAtual: "MUDA" }).expect(201)).body.data.planta;
+  const original = await plant("Planta a desvincular");
+  const next = await plant("Próxima planta");
+  const calibration = { distanciaVazioCm: 28, distanciaCheioCm: 6 };
+  const target = (await api("post", `/dispositivos/${device.id}/zonas`, { nome: "Zona para liberar", plantaId: original.id, calibracao: calibration }).expect(201)).body.data;
+  const reading = message({ zonaId: target.id });
+  const event = { versao: 1, mensagemId: randomUUID(), dispositivoId: device.id, zonaId: target.id, medidoEm: reading.medidoEm, simulado: true, tipo: "IRRIGACAO_INICIADA", irrigacaoId: randomUUID() };
+  assert.equal(await service.ingest(`${prefix}/${device.id}/sensores`, Buffer.from(JSON.stringify(reading))), true);
+  assert.equal(await service.ingest(`${prefix}/${device.id}/eventos`, Buffer.from(JSON.stringify(event))), true);
+  const path = `/plantas/${original.id}/zona`;
+  await request(app).delete(`/api/v1${path}`).expect(401);
+  await api("delete", path, null, otherToken).expect(404);
+  assert.equal((await models.ZonaIrrigacao.findByPk(target.id)).plantaId, original.id);
+  const removed = await api("delete", path).expect(204);
+  assert.equal(removed.text, "");
+  await api("delete", path).expect(204);
+  const freed = await models.ZonaIrrigacao.findByPk(target.id);
+  assert.equal(freed.plantaId, null);
+  assert.equal(freed.nome, target.nome);
+  assert.deepEqual(freed.calibracao, calibration);
+  await api("put", `/plantas/${next.id}/zona`, { dispositivoId: device.id, zonaId: target.id }).expect(200);
+  const readings = (await api("get", `/plantas/${original.id}/leituras`).expect(200)).body.data;
+  assert.equal(readings[0].mensagemId, reading.mensagemId);
+  const irrigations = (await api("get", `/plantas/${original.id}/irrigacoes`).expect(200)).body.data;
+  assert.equal(irrigations[0].irrigacaoId, event.irrigacaoId);
+  assert.equal((await api("get", `/plantas/${next.id}/irrigacoes`).expect(200)).body.meta.total, 0);
+});
 test("MQTT TCP real: broker local entrega leitura e configuração recebe ACK", { timeout: 20000 }, async t => {
   const binary = process.platform === "win32" ? "C:/Program Files/mosquitto/mosquitto.exe" : "/usr/sbin/mosquitto";
   if (!fs.existsSync(binary)) return t.skip("Mosquitto local não instalado");
