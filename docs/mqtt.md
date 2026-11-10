@@ -98,7 +98,27 @@ POST de sincronização recebe:
 }
 ```
 
-A calibração deve coincidir com a da zona (ou ambas null). O backend acrescenta `versao`, `configuracaoId`, `dispositivoId` e `zonaId`. Estados: PENDENTE → ENVIADA → CONFIRMADA, ou ERRO. Confirmação de publicação pelo broker não equivale a confirmação da placa. Sem ACK, permanece ENVIADA; após reconexão/reinício da placa, consulte e sincronize novamente. Não há reenvio automático de configurações antigas nem comando de bomba retido. Ao aplicar, a placa deve validar o JSON, persistir a configuração válida e responder com o ID exato. Simulador aplica somente o intervalo, sem saídas físicas.
+A calibração deve coincidir com a da zona (ou ambas null). O backend acrescenta `versao` do protocolo, `configuracaoId`, `dispositivoId` e `zonaId`. Cada sincronização gera um novo ID de configuração. A configuração fica `ENVIADA` enquanto aguarda o ACK e fica `CONFIRMADA` quando o dispositivo confirma o ID; falha de envio ou ACK negativo produz `ERRO`. A confirmação de publicação pelo broker não equivale à confirmação do dispositivo. Após reiniciar o simulador, sincronize novamente; não há reenvio automático nem mensagem de configuração retida.
+
+### Demonstração de irrigação com perfil
+
+1. Cadastre um dispositivo com `simulado: true`, vincule uma planta ativa a uma zona com calibração do reservatório e associe à planta um perfil validado compatível com a espécie e a fase. Em um ensaio fictício, uma mínima de 50 e um alvo de 65 permitem disparar o exemplo com as leituras simuladas de 37 a 45. Esses números são dados de teste, não parâmetros de cultivo.
+2. Inicie o simulador conforme o guia acima, com `$env:MQTT_SIM_IRRIGACOES = 'true'` no terminal antes de `npm.cmd run mqtt:simulate`.
+3. Com Bearer JWT, envie `POST /api/v1/dispositivos/:id/zonas/:zonaId/sincronizacao` com:
+
+```json
+{
+  "modo": "SIMULACAO_IRRIGACAO",
+  "intervaloLeituraSegundos": 2,
+  "automacaoHabilitada": false,
+  "calibracaoReservatorio": {"distanciaVazioCm": 30, "distanciaCheioCm": 5}
+}
+```
+
+Use as distâncias cadastradas na zona. No modo simulado o backend guarda a planta, o perfil, a versão e seus parâmetros em `dados.irrigacao` e publica o mesmo objeto como `irrigacao` no MQTT. Dispositivo físico recebe `409` se a simulação for solicitada. Se faltar calibração, planta ativa, vínculo ou perfil compatível e validado, o backend envia `modo: MONITORAMENTO`, sem parâmetros de irrigação, e expõe `dados.motivoMonitoramento` na API. O modo omitido mantém o contrato anterior de monitoramento.
+
+4. Consulte `GET /api/v1/dispositivos/:id/zonas/:zonaId/configuracao` até o ID enviado ficar `CONFIRMADA`. O simulador valida a configuração, confirma o ID e, com a opção de irrigação ativa, gera uma execução fictícia quando a umidade simulada fica abaixo da mínima e o intervalo foi respeitado. A execução dura até dois segundos, limitada pela duração máxima do perfil. Não simula a dinâmica do solo nem aciona saídas físicas.
+5. Consulte `GET /api/v1/plantas/:id/irrigacoes` para conferir `configuracaoId` e `configuracaoSnapshot.irrigacao`. O histórico unificado e o dashboard mostram o ID e a versão do perfil usados. Editar o perfil não altera a cópia registrada. Depois de editar, sincronize novamente: enquanto a revisão do vínculo estiver pendente, o dispositivo receberá monitoramento. A edição não envia uma configuração automaticamente.
 
 ## API — JWT Bearer obrigatório
 

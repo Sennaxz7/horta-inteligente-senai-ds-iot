@@ -27,7 +27,9 @@ const timeline = `
         'dispositivoId', dispositivo_id, 'zonaId', zona_id, 'simulado', simulado,
         'iniciadaEm', iniciada_em, 'finalizadaEm', finalizada_em,
         'duracaoSegundos', duracao_segundos, 'motivoFalha', motivo_falha,
-        'configuracaoId', configuracao_id)
+        'configuracaoId', configuracao_id,
+        'perfilIrrigacaoId', configuracao_snapshot #> '{irrigacao,perfilIrrigacaoId}',
+        'perfilVersao', configuracao_snapshot #> '{irrigacao,perfilVersao}')
     FROM registros_irrigacao WHERE planta_id = $plantaId
   ), filtrados AS (
     SELECT * FROM eventos

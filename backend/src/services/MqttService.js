@@ -186,16 +186,29 @@ class MqttService {
   }
 
   async synchronize(id, zonaId, usuarioId, input) {
-    await this.owned(id, usuarioId);
-    const zone = await this.zone(id, zonaId);
-    if (JSON.stringify(input.calibracaoReservatorio) !== JSON.stringify(zone.calibracao)) {
-      // Comparação por campos, pois JSONB não preserva a ordem das chaves.
-      if (input.calibracaoReservatorio?.distanciaVazioCm !== zone.calibracao?.distanciaVazioCm || input.calibracaoReservatorio?.distanciaCheioCm !== zone.calibracao?.distanciaCheioCm) throw new AppError(409, "CALIBRATION_MISMATCH", "Use a calibração cadastrada na zona.");
-    }
-    if (!this.connected) throw new AppError(503, "MQTT_UNAVAILABLE", "Broker MQTT desconectado.");
-    const config = await this.models.ConfiguracaoMqtt.create({ dispositivoId: id, zonaId, dados: input, status: "PENDENTE" });
-    const message = { versao: 1, configuracaoId: config.id, dispositivoId: id, zonaId, ...input };
-    await config.update({ status: "ENVIADA" });
+    const config = await this.database.transaction(async transaction => {
+      const device = await this.owned(id, usuarioId, transaction);
+      const zone = await this.zone(id, zonaId, transaction);
+      if (input.calibracaoReservatorio?.distanciaVazioCm !== zone.calibracao?.distanciaVazioCm ||
+          input.calibracaoReservatorio?.distanciaCheioCm !== zone.calibracao?.distanciaCheioCm) {
+        throw new AppError(409, "CALIBRATION_MISMATCH", "Use a calibração cadastrada na zona.");
+      }
+      if (input.modo === "SIMULACAO_IRRIGACAO" && !device.simulado) {
+        throw new AppError(409, "SIMULATION_DEVICE_REQUIRED", "Use um dispositivo cadastrado como simulado.");
+      }
+      if (!this.connected) throw new AppError(503, "MQTT_UNAVAILABLE", "Broker MQTT desconectado.");
+      const dados = { ...input };
+      if (input.modo === "SIMULACAO_IRRIGACAO") {
+        const { snapshot, motivo } = await this.irrigationSnapshot(zone, usuarioId, transaction);
+        if (snapshot) dados.irrigacao = snapshot;
+        else Object.assign(dados, { modo: "MONITORAMENTO", motivoMonitoramento: motivo });
+      }
+      return this.models.ConfiguracaoMqtt.create({
+        dispositivoId: id, zonaId, dados, status: "ENVIADA",
+      }, { transaction });
+    });
+    const { motivoMonitoramento, ...dados } = config.dados;
+    const message = { versao: 1, configuracaoId: config.id, dispositivoId: id, zonaId, ...dados };
     try {
       await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error("Timeout")), 10000);
@@ -206,6 +219,31 @@ class MqttService {
       throw new AppError(503, "MQTT_PUBLISH_FAILED", "Publicação não confirmada pelo broker. Consulte a configuração antes de repetir.");
     }
     return config.reload();
+  }
+
+  async irrigationSnapshot(zone, usuarioId, transaction) {
+    const lock = transaction.LOCK.UPDATE;
+    if (!zone.calibracao) return { motivo: "SEM_CALIBRACAO_RESERVATORIO" };
+    const plant = zone.plantaId && await this.models.Planta.findOne({
+      where: { id: zone.plantaId, usuarioId, arquivadaEm: null }, transaction, lock,
+    });
+    if (!plant) return { motivo: "SEM_PLANTA_ATIVA" };
+    const link = await this.models.PlantaPerfilIrrigacao.findByPk(plant.id, { transaction });
+    if (!link) return { motivo: "SEM_PERFIL_VINCULADO" };
+    const profile = await this.models.PerfilIrrigacao.findByPk(link.perfilIrrigacaoId, { transaction, lock });
+    if (!profile || (profile.tipo !== "REFERENCIA" && profile.usuarioId !== usuarioId) ||
+        profile.arquivadoEm || profile.statusValidacao !== "VALIDADO" || profile.versao !== link.versao ||
+        !plant.especieId || plant.especieId !== link.snapshot.especieId || plant.faseAtual !== link.snapshot.fase) {
+      return { motivo: "PERFIL_REQUER_REVISAO" };
+    }
+    const parsed = schemas.irrigationSnapshot.safeParse({
+      plantaId: plant.id, perfilIrrigacaoId: profile.id, perfilVersao: link.versao,
+      especieId: plant.especieId, fase: plant.faseAtual,
+      umidadeMinima: link.snapshot.umidadeMinima, umidadeAlvo: link.snapshot.umidadeAlvo,
+      duracaoMaximaSegundos: link.snapshot.duracaoMaximaSegundos,
+      intervaloMinimoSegundos: link.snapshot.intervaloMinimoSegundos,
+    });
+    return parsed.success ? { snapshot: parsed.data } : { motivo: "PERFIL_REQUER_REVISAO" };
   }
 }
 module.exports = MqttService;

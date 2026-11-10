@@ -147,7 +147,7 @@ Término:
 
 No término, `resultado` pode ser `CONCLUIDA` (padrão quando omitido) ou `FALHA`; `motivoFalha` é opcional, até 2000 caracteres, somente com `resultado: FALHA`. `duracaoSegundos` é a duração reportada, opcional, entre 0 e 86400. Sem duração, fica null: não é calculada a partir de horários nem implica volume aplicado. Resultado/motivo são aceitos somente na finalização e exigem `irrigacaoId`.
 
-`configuracaoId` é opcional e exige `irrigacaoId`; quando informado precisa existir no mesmo dispositivo/zona. Guarda-se o ID e snapshot dos dados daquela configuração. Não se escolhe a última configuração por aproximação. Os dois eventos não podem informar configurações diferentes. Configuração aceita na API atual é de monitoramento; um ACK não comprova irrigação. O perfil selecionado na planta não é apresentado como perfil executado, pois ainda não foi enviado como configuração de irrigação ao dispositivo. Ganhos PI/PID e sua sintonia pertencem à montagem física e continuam fora desta entrega.
+`configuracaoId` é opcional no protocolo legado e exige `irrigacaoId`; quando informado precisa existir no mesmo dispositivo/zona. Guarda-se o ID e snapshot dos dados daquela configuração. Na [demonstração com perfil](mqtt.md#demonstração-de-irrigação-com-perfil), o simulador repete o ID confirmado no início e no fim. O registro usa a planta do snapshot e preserva a versão do perfil usada, inclusive após mudanças na zona ou no perfil. Um ACK, por si só, não comprova uma execução. Ganhos PI/PID e sua sintonia continuam fora desta entrega.
 
 Regras de persistência:
 
@@ -157,7 +157,7 @@ Regras de persistência:
 - Término recebido primeiro cria um registro finalizado com início null e `inicioAusente: true`. Se o início chegar depois com data coerente, completa o registro preservando o resultado final.
 - Término anterior ao início, troca de zona para a mesma execução e configuração conflitante são descartados.
 - Sem término, permanece `EM_ANDAMENTO`; não existe conclusão ou falha automática por timeout.
-- Planta é a vinculada à zona no recebimento do primeiro evento aceito da execução. Esse vínculo nunca é transferido ao trocar a ocupante da zona. Não é possível reconstruir uma ocupação antiga a partir de um evento que só chegou depois da troca.
+- Para execuções com perfil simulado, a planta vem da configuração confirmada. Nos demais casos, usa-se a planta vinculada à zona no recebimento do primeiro evento aceito. Trocar a ocupante da zona não transfere execuções registradas.
 - Mensagens antigas sem `irrigacaoId` continuam salvas no histórico geral de eventos, sem conversão ou pareamento aproximado. Nenhum backfill é executado.
 - Eventos relatam o dispositivo/simulador. Não comprovam fisicamente acionamento ou volume de água. Dispositivo arquivado não aceita novas mensagens, conforme o contrato MQTT existente; seus registros já persistidos permanecem consultáveis pela planta.
 
@@ -178,6 +178,6 @@ $env:MQTT_SIM_IRRIGACOES = 'true'
 npm.cmd run mqtt:simulate
 ```
 
-A cada seis leituras, o simulador publica início e finalização após dois segundos, sempre com `simulado: true`, sem saídas físicas. Sem a variável, o comportamento anterior de apenas leituras/status é mantido.
+Sem modo explícito, o simulador publica início e finalização após dois segundos a cada seis leituras, sempre com `simulado: true`, sem saídas físicas. Com `SIMULACAO_IRRIGACAO`, os eventos levam o ID da configuração e respeitam a umidade mínima, o intervalo e a duração máxima do perfil. Com `MONITORAMENTO` explícito, o simulador só publica leituras e status. Sem a variável, nenhum evento de irrigação é gerado.
 
 `npm.cmd test` verifica validações, isolamento de campos e protocolo. `npm.cmd run test:postgres` usa banco temporário e verifica importação administrativa, referências/cópias, acesso privado, compatibilidade, snapshots, versões, arquivamento, MQTT concorrente, mensagens fora de ordem, integridade transacional e migrations/rollback. Não publica referências no banco de desenvolvimento.

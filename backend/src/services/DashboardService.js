@@ -33,6 +33,9 @@ const overview = `
     SELECT r.id, r.irrigacao_id AS "irrigacaoId", planta.id AS "plantaId",
       planta.nome AS "plantaNome", r.dispositivo_id AS "dispositivoId",
       r.zona_id AS "zonaId", r.resultado, r.simulado,
+      r.configuracao_id AS "configuracaoId",
+      r.configuracao_snapshot #> '{irrigacao,perfilIrrigacaoId}' AS "perfilIrrigacaoId",
+      r.configuracao_snapshot #> '{irrigacao,perfilVersao}' AS "perfilVersao",
       COALESCE(r.iniciada_em, r.finalizada_em) AS data,
       r.iniciada_em AS "iniciadaEm", r.finalizada_em AS "finalizadaEm",
       r.duracao_segundos AS "duracaoSegundos"

@@ -3,7 +3,7 @@ const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const mqtt = require("mqtt");
 const { z } = require("zod");
-const { config: configSchema } = require("../src/validators/mqttValidators");
+const { configMessage } = require("../src/validators/mqttValidators");
 require("dotenv").config({
   path: path.resolve(__dirname, "../.env"),
   quiet: true,
@@ -45,29 +45,39 @@ let timer;
 let tick = 0;
 let irrigation;
 let irrigationTimer;
+let appliedConfig;
+let lastIrrigationEndedAt;
 const send = (suffix, data, retain = false) =>
   client.publish(`${base}/${suffix}`, JSON.stringify(data), { qos: 1, retain });
 function readings() {
   if (!client.connected) return;
   // Distâncias e umidades fictícias para testar a cadeia de dados.
+  const umidadeSoloPercentual = [45, 43, 41, 39, 37][tick % 5];
   send("sensores", {
     ...envelope(),
     zonaId: zoneId,
-    umidadeSoloPercentual: [45, 43, 41, 39, 37][tick % 5],
+    umidadeSoloPercentual,
     distanciaAguaCm: [15, 17, 20, 25, 29][tick % 5],
   });
   tick++;
   // Demonstração opcional: publica eventos, sem controlar bomba ou inferir consumo.
-  if (process.env.MQTT_SIM_IRRIGACOES === "true" && !irrigation && tick % 6 === 0) {
+  const profile = appliedConfig?.irrigacao;
+  const shouldSimulate = profile
+    ? umidadeSoloPercentual < profile.umidadeMinima &&
+      (lastIrrigationEndedAt === undefined ||
+       Date.now() - lastIrrigationEndedAt >= profile.intervaloMinimoSegundos * 1000)
+    : !appliedConfig?.modo && tick % 6 === 0;
+  if (process.env.MQTT_SIM_IRRIGACOES === "true" && !irrigation && shouldSimulate) {
     irrigation = randomUUID();
-    send("eventos", { ...envelope(), zonaId: zoneId, tipo: "IRRIGACAO_INICIADA", irrigacaoId: irrigation });
-    const execution = irrigation;
-    const ended = { ...envelope(), zonaId: zoneId, tipo: "IRRIGACAO_FINALIZADA", irrigacaoId: execution, resultado: "CONCLUIDA", duracaoSegundos: 2 };
+    const execution = { zonaId: zoneId, irrigacaoId: irrigation,
+      ...(profile ? { configuracaoId: appliedConfig.configuracaoId } : {}) };
+    const duration = profile ? Math.min(2, profile.duracaoMaximaSegundos) : 2;
+    send("eventos", { ...envelope(), ...execution, tipo: "IRRIGACAO_INICIADA" });
     irrigationTimer = setTimeout(() => {
-      ended.medidoEm = new Date().toISOString();
-      send("eventos", ended);
+      send("eventos", { ...envelope(), ...execution, tipo: "IRRIGACAO_FINALIZADA", resultado: "CONCLUIDA", duracaoSegundos: duration });
+      lastIrrigationEndedAt = Date.now();
       irrigation = null;
-    }, 2000);
+    }, duration * 1000);
   }
   console.log(`Leitura simulada ${tick} publicada.`);
 }
@@ -86,24 +96,16 @@ client.on("connect", () => {
   });
 });
 client.on("message", (topic, payload, packet) => {
-  if (packet.retain || payload.length > 16384) return;
+  if (topic !== `${base}/config` || packet.retain || payload.length > 16384) return;
   let data;
   try {
     data = JSON.parse(payload.toString());
   } catch {
     return;
   }
-  const schema = z
-    .object({
-      versao: z.literal(1),
-      configuracaoId: z.string().uuid(),
-      dispositivoId: z.literal(deviceId),
-      zonaId: z.literal(zoneId),
-      ...configSchema.shape,
-    })
-    .strict();
-  const parsed = schema.safeParse(data);
-  if (!parsed.success) return;
+  const parsed = configMessage.safeParse(data);
+  if (!parsed.success || parsed.data.dispositivoId !== deviceId || parsed.data.zonaId !== zoneId) return;
+  appliedConfig = parsed.data;
   intervalMs = data.intervaloLeituraSegundos * 1000;
   schedule();
   send("config/ack", {

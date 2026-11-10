@@ -25,6 +25,22 @@ const config = z
     calibracaoReservatorio: calibracao.nullable(),
   })
   .strict();
+const irrigationSnapshot = z.object({
+  plantaId: uuid, perfilIrrigacaoId: uuid, perfilVersao: z.number().int().positive(),
+  especieId: uuid, fase: z.enum(require("./plantaValidators").fases),
+  umidadeMinima: percent, umidadeAlvo: percent,
+  duracaoMaximaSegundos: z.number().int().min(1).max(86400),
+  intervaloMinimoSegundos: z.number().int().min(1).max(2147483647),
+}).strict().refine(v => v.umidadeMinima < v.umidadeAlvo);
+const configMessage = config.extend({
+  versao: z.literal(1), configuracaoId: uuid, dispositivoId: uuid, zonaId: uuid,
+  modo: z.enum(["MONITORAMENTO", "SIMULACAO_IRRIGACAO"]).optional(),
+  irrigacao: irrigationSnapshot.optional(),
+}).superRefine((value, ctx) => {
+  if (value.modo === "SIMULACAO_IRRIGACAO" ? !value.irrigacao || !value.calibracaoReservatorio : value.irrigacao) {
+    ctx.addIssue({ code: "custom", message: "Modo incompatível com os parâmetros de irrigação." });
+  }
+});
 const zonaFields = {
   nome: z.string().trim().min(1).max(120),
   plantaId: uuid.nullable(),
@@ -50,6 +66,9 @@ module.exports = {
   zonaPatch: z.object(zonaFields).strict().partial()
     .refine(data => Object.keys(data).length > 0, "Informe ao menos um campo."),
   config,
+  syncConfig: config.extend({ modo: z.enum(["MONITORAMENTO", "SIMULACAO_IRRIGACAO"]).optional() }),
+  configMessage,
+  irrigationSnapshot,
   sensores: z
     .object({
       ...base,

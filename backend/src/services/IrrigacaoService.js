@@ -37,6 +37,7 @@ class IrrigacaoService {
       if (row.zonaId !== zone.id || (start ? row.iniciadaEm : row.finalizadaEm)) return false;
       if ((start && row.finalizadaEm && date > row.finalizadaEm) || (!start && row.iniciadaEm && date < row.iniciadaEm)) return false;
       if (data.configuracaoId && row.configuracaoId && data.configuracaoId !== row.configuracaoId) return false;
+      if (row.configuracaoSnapshot?.irrigacao && !data.configuracaoId) return false;
     }
     let config;
     if (data.configuracaoId) {
@@ -44,6 +45,12 @@ class IrrigacaoService {
         where: { id: data.configuracaoId, dispositivoId: data.dispositivoId, zonaId: zone.id }, transaction,
       });
       if (!config) return false;
+      if (config.dados.modo === "MONITORAMENTO") return false;
+      if (config.dados.irrigacao) {
+        if (!data.simulado || config.status !== "CONFIRMADA" ||
+            (data.duracaoSegundos ?? 0) > config.dados.irrigacao.duracaoMaximaSegundos ||
+            (row && row.plantaId !== config.dados.irrigacao.plantaId)) return false;
+      }
     }
     const changes = start
       ? { iniciadaEm: date, inicioRecebidoEm: new Date() }
@@ -55,7 +62,8 @@ class IrrigacaoService {
     }
     if (row) await row.update(changes, { transaction });
     else await this.models.RegistroIrrigacao.create({
-      dispositivoId: data.dispositivoId, zonaId: zone.id, plantaId: zone.plantaId || null,
+      dispositivoId: data.dispositivoId, zonaId: zone.id,
+      plantaId: config?.dados.irrigacao?.plantaId ?? zone.plantaId ?? null,
       irrigacaoId: data.irrigacaoId, simulado: data.simulado, resultado: "EM_ANDAMENTO", ...changes,
     }, { transaction });
     return true;

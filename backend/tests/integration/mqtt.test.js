@@ -252,7 +252,7 @@ test("dashboard resume somente a horta autenticada e limita as listas sem reduzi
   assert.ok(!owner.irrigacoesRecentes.some(i => i.irrigacaoId === irrigacaoId));
   assert.ok(!owner.ultimasLeituras.some(l => l.plantaId === first.id));
 });
-test("MQTT TCP real: broker local entrega leitura e configuração recebe ACK", { timeout: 20000 }, async t => {
+test("MQTT TCP real: perfil versionado recebe ACK e chega ao histórico e dashboard", { timeout: 30000 }, async t => {
   const binary = process.platform === "win32" ? "C:/Program Files/mosquitto/mosquitto.exe" : "/usr/sbin/mosquitto";
   if (!fs.existsSync(binary)) return t.skip("Mosquitto local não instalado");
   const socket = net.createServer(); await new Promise(r => socket.listen(0, "127.0.0.1", r));
@@ -266,12 +266,48 @@ test("MQTT TCP real: broker local entrega leitura e configuração recebe ACK", 
     publisher = mqtt.connect(service.env.MQTT_URL);
     await new Promise((resolve, reject) => { publisher.once("connect", resolve); publisher.once("error", reject); });
     await new Promise((resolve, reject) => publisher.subscribe(`${prefix}/${device.id}/config`, { qos: 1 }, e => e ? reject(e) : resolve()));
-    simulator = spawn(process.execPath, ["scripts/simulate-mqtt.js"], { windowsHide: true, stdio: "ignore", env: { ...process.env, MQTT_URL: service.env.MQTT_URL, MQTT_PREFIX: prefix, MQTT_SIM_DEVICE_ID: device.id, MQTT_SIM_ZONE_ID: zone.id, MQTT_SIM_USERNAME: "", MQTT_SIM_PASSWORD: "" } });
+    simulator = spawn(process.execPath, ["scripts/simulate-mqtt.js"], { windowsHide: true, stdio: "ignore", env: { ...process.env, MQTT_URL: service.env.MQTT_URL, MQTT_PREFIX: prefix, MQTT_SIM_DEVICE_ID: device.id, MQTT_SIM_ZONE_ID: zone.id, MQTT_SIM_USERNAME: "", MQTT_SIM_PASSWORD: "", MQTT_SIM_IRRIGACOES: "true" } });
     await until(async () => (await models.Dispositivo.findByPk(device.id)).ultimoStatus?.estado === "ONLINE");
     const data = message(); publisher.publish(`${prefix}/${device.id}/sensores`, JSON.stringify(data), { qos: 1 });
     await until(() => models.MensagemMqtt.findOne({ where: { mensagemId: data.mensagemId } }));
-    const response = await api("post", `/dispositivos/${device.id}/zonas/${zone.id}/sincronizacao`, { intervaloLeituraSegundos: 5, automacaoHabilitada: false, calibracaoReservatorio: zone.calibracao }).expect(202);
-    await until(async () => (await models.ConfiguracaoMqtt.findByPk(response.body.data.id)).status === "CONFIRMADA");
+    const sync = `/dispositivos/${device.id}/zonas/${zone.id}/sincronizacao`;
+    const input = { intervaloLeituraSegundos: 2, automacaoHabilitada: false, calibracaoReservatorio: zone.calibracao, modo: "SIMULACAO_IRRIGACAO" };
+    const fallback = (await api("post", sync, input).expect(202)).body.data;
+    assert.equal(fallback.dados.modo, "MONITORAMENTO");
+    assert.equal(fallback.dados.motivoMonitoramento, "SEM_PLANTA_ATIVA");
+    await until(async () => (await models.ConfiguracaoMqtt.findByPk(fallback.id)).status === "CONFIRMADA");
+
+    const especieId = (await api("post", "/especies", { nomeCientifico: `Teste MQTT ${randomUUID()}` }).expect(201)).body.data.especie.id;
+    const plant = (await api("post", "/plantas", { nome: "Vaso do simulador", faseAtual: "MUDA", especieId }).expect(201)).body.data.planta;
+    const profile = (await api("post", "/perfis-irrigacao", {
+      nome: "Parâmetros fictícios", especieId, fase: "MUDA", umidadeMinima: 50, umidadeAlvo: 65,
+      duracaoMaximaSegundos: 1, intervaloMinimoSegundos: 60, fonte: "Somente teste automatizado",
+    }).expect(201)).body.data.perfil;
+    await api("patch", `/perfis-irrigacao/${profile.id}`, { statusValidacao: "VALIDADO" }).expect(200);
+    await api("put", `/plantas/${plant.id}/perfil-irrigacao`, { perfilIrrigacaoId: profile.id }).expect(200);
+    await api("put", `/plantas/${plant.id}/zona`, { dispositivoId: device.id, zonaId: zone.id }).expect(200);
+    const config = (await api("post", sync, input).expect(202)).body.data;
+    assert.equal(config.dados.automacaoHabilitada, false);
+    assert.equal(config.dados.irrigacao.perfilVersao, 1);
+    assert.equal(config.dados.irrigacao.plantaId, plant.id);
+    await until(async () => (await models.ConfiguracaoMqtt.findByPk(config.id)).status === "CONFIRMADA");
+    await until(() => models.RegistroIrrigacao.findOne({ where: { configuracaoId: config.id, resultado: "CONCLUIDA" } }));
+    await api("patch", `/perfis-irrigacao/${profile.id}`, { umidadeAlvo: 66 }).expect(200);
+    const revised = (await api("post", sync, input).expect(202)).body.data;
+    assert.equal(revised.dados.modo, "MONITORAMENTO");
+    assert.equal(revised.dados.motivoMonitoramento, "PERFIL_REQUER_REVISAO");
+    await until(async () => (await models.ConfiguracaoMqtt.findByPk(revised.id)).status === "CONFIRMADA");
+    const history = (await api("get", `/plantas/${plant.id}/irrigacoes`).expect(200)).body.data;
+    assert.equal(history[0].configuracaoId, config.id);
+    assert.equal(history[0].configuracaoSnapshot.irrigacao.umidadeAlvo, 65);
+    assert.equal(history[0].duracaoSegundos, 1);
+    const dashboard = (await api("get", "/dashboard").expect(200)).body.data;
+    const execution = dashboard.irrigacoesRecentes.find(i => i.configuracaoId === config.id);
+    assert.equal(execution.perfilIrrigacaoId, profile.id);
+    assert.equal(execution.perfilVersao, 1);
+    const real = (await api("post", "/dispositivos", { nome: "Dispositivo físico", simulado: false }).expect(201)).body.data;
+    const realZone = (await api("post", `/dispositivos/${real.id}/zonas`, { nome: "Zona física" }).expect(201)).body.data;
+    await api("post", `/dispositivos/${real.id}/zonas/${realZone.id}/sincronizacao`, { ...input, calibracaoReservatorio: null }).expect(409);
   } finally {
     if (simulator) simulator.kill();
     if (publisher) await new Promise(r => publisher.end(true, {}, r));

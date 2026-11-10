@@ -131,7 +131,7 @@ module.exports = ({ env, authService, services }) => {
   router.post(
     "/dispositivos/:id/zonas/:zonaId/sincronizacao",
     params,
-    validate(s.config),
+    validate(s.syncConfig),
     async (req, res) =>
       res
         .status(202)

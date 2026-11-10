@@ -84,5 +84,5 @@ Listagens terão paginação e filtros apropriados. Downloads de fotos serão au
 1. Infraestrutura PostgreSQL/Sequelize e autenticação JWT — concluída.
 2. Catálogos e CRUD de plantas — concluída.
 3. Fotos, crescimento e identificação PlantNet — concluída; testes externos simulados, chamada real depende de chave válida.
-4. Perfis pessoais/de referência, dispositivos, zonas e MQTT — implementados; configurações MQTT ainda são somente de monitoramento.
-5. Leituras, histórico de irrigações reportadas, histórico unificado e dashboard — implementados. Controle físico e configuração efetiva de irrigação permanecem pendentes.
+4. Perfis pessoais/de referência, dispositivos, zonas e MQTT — implementados; perfis versionados podem ser sincronizados em dispositivos simulados.
+5. Leituras, histórico de irrigações reportadas, histórico unificado e dashboard — implementados. Controle físico, firmware e calibração de bancada permanecem pendentes.
