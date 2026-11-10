@@ -31,6 +31,7 @@ module.exports = {
   fotoParams: z.object({ id: uuid, fotoId: uuid }).strict(),
   identificacaoParams: z.object({ id: uuid, identificacaoId: uuid }).strict(),
   paginationSchema: z.object(pagination).strict(),
+  dashboardQuerySchema: z.object({ limite: pagination.limite.default(10) }).strict(),
   especieCreateSchema: z
     .object({
       nomeCientifico: z

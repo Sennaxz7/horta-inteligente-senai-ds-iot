@@ -4,6 +4,21 @@ Rotas adicionais: [dispositivos e monitoramento MQTT](mqtt.md) e [perfis de irri
 
 Base: `/api/v1`. Corpos usam `Content-Type: application/json`, exceto o upload de foto, que usa multipart. Campos desconhecidos são rejeitados. O limite do corpo JSON é 16 KiB.
 
+## Dashboard
+
+`GET /api/v1/dashboard` exige JWT Bearer e resume somente a horta do usuário autenticado. Exemplo: `GET /api/v1/dashboard?limite=5`. O parâmetro opcional `limite` aceita um inteiro de 1 a 100 (padrão 10) e se aplica separadamente a cada lista, sem limitar os totais.
+
+A resposta é `200` com os seguintes campos dentro de `data`:
+
+| Campo | Conteúdo |
+| --- | --- |
+| `plantas` | `total`, `ativas`, `arquivadas`, `ativasIdentificadas` e `ativasPorFase` |
+| `ultimasLeituras` | Até uma leitura por planta ativa com medições, da mais recente à mais antiga pelo horário medido |
+| `irrigacoesRecentes` | Execuções reportadas das plantas ativas, da mais recente à mais antiga pelo início ou, se ausente, pelo término |
+| `dispositivos` | `total` de ativos, `online`, `offline`, `semStatus` e `itens`, ordenados pela última mensagem, com os sem mensagem no fim |
+
+O estado do dispositivo é o último informado por MQTT (`ONLINE`, `OFFLINE` ou `SEM_STATUS` quando não há relato). Não é uma verificação ao vivo; consulte `statusMedidoEm`, `statusRecebidoEm` e `ultimaMensagemEm` para interpretar a atualidade dos dados. Leituras e irrigações incluem `simulado` e mantêm o vínculo registrado na origem. Sem dados, os totais ficam zerados e as listas vazias. Token ausente retorna `401`; parâmetro inválido retorna `422`.
+
 ## Histórico unificado da planta
 
 `GET /api/v1/plantas/:id/historico` exige JWT Bearer e pode ser consultado pelo dono mesmo se a planta estiver arquivada. A rota reúne registros já gravados de crescimento, tentativas de identificação por foto, leituras de sensores e execuções de irrigação. Cada item contém `id` do registro original, `tipo`, `data` e `dados` específicos do tipo. Leituras e irrigações permanecem com a planta originalmente registrada, mesmo após troca de zona. Eventos MQTT brutos e status do dispositivo não entram na linha do tempo.

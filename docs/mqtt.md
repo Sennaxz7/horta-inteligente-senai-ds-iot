@@ -124,7 +124,7 @@ Todos os recursos são filtrados pelo proprietário autenticado; IDs de terceiro
 | GET `/dispositivos/:id/zonas/:zonaId/configuracao` | última configuração e estado do ACK |
 | POST `/dispositivos/:id/zonas/:zonaId/sincronizacao` | publica nova versão; retorna 202 |
 
-Vínculo com planta é opcional; quando informado, deve pertencer ao mesmo usuário, estar ativa e não ter outra zona. Cada leitura conserva a planta vinculada no instante de recebimento, mesmo após mudar a zona. Perfis e histórico de irrigações possuem [rotas próprias](irrigacao.md); dashboard permanece planejado.
+Vínculo com planta é opcional; quando informado, deve pertencer ao mesmo usuário, estar ativa e não ter outra zona. Cada leitura conserva a planta vinculada no instante de recebimento, mesmo após mudar a zona. Perfis e histórico de irrigações possuem [rotas próprias](irrigacao.md). O [dashboard](api.md#dashboard) resume as últimas leituras, as irrigações e o status informado pelos dispositivos.
 
 Para vincular pela planta, envie `{"dispositivoId":"UUID_DO_DISPOSITIVO","zonaId":"UUID_DA_ZONA"}` ao `PUT /plantas/:id/zona`. O retorno é `200` com a zona em `data`. Repetir o mesmo vínculo retorna a zona sem alterá-la. Planta/dispositivo arquivado, recurso de terceiro ou zona fora do dispositivo retornam `404`. Uma zona ocupada por outra planta ou uma planta vinculada a outra zona retorna `409`. Leituras e irrigações anteriores mantêm seu vínculo original.
 

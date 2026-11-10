@@ -6,6 +6,7 @@ const FotoService = require("./FotoService");
 const PlantNetService = require("./PlantNetService");
 const IdentificacaoService = require("./IdentificacaoService");
 const HistoricoService = require("./HistoricoService");
+const DashboardService = require("./DashboardService");
 
 function createServices({ models, database, env, fetchImpl }) {
   const catalogoService = new CatalogoService({ models });
@@ -49,6 +50,7 @@ function createServices({ models, database, env, fetchImpl }) {
     fotoService,
     identificacaoService,
     historicoService: new HistoricoService({ database, plantaService }),
+    dashboardService: new DashboardService({ database }),
   };
 }
 

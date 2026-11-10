@@ -36,6 +36,9 @@ module.exports = function recursoRoutes({ env, authService, services }) {
       },
     });
 
+  router.get("/dashboard", validate(schemas.dashboardQuerySchema, "query"), async (req, res) => {
+    res.json(await services.dashboardService.get(req.usuario.id, req.validatedQuery));
+  });
   router.get(
     "/especies",
     validate(schemas.especieQuerySchema, "query"),

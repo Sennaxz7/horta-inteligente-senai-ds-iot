@@ -195,6 +195,63 @@ test("histórico unificado pagina os quatro tipos por data e preserva a origem a
     await api("get", `${path}?${query}`).expect(422);
   }
 });
+test("dashboard resume somente a horta autenticada e limita as listas sem reduzir os totais", async () => {
+  await request(app).get("/api/v1/dashboard").expect(401);
+  await api("get", "/dashboard?limite=101").expect(422);
+  await api("get", `/dashboard?usuarioId=${device.usuarioId}`).expect(422);
+  const other = (method, path, body) => api(method, path, body, otherToken);
+  const empty = (await other("get", "/dashboard").expect(200)).body.data;
+  assert.deepEqual(empty.plantas, { total: 0, ativas: 0, arquivadas: 0, ativasIdentificadas: 0, ativasPorFase: {} });
+  assert.deepEqual(empty.dispositivos.itens, []);
+  assert.deepEqual(empty.ultimasLeituras, []);
+  assert.deepEqual(empty.irrigacoesRecentes, []);
+
+  const species = (await other("post", "/especies", { nomeCientifico: `Teste ${randomUUID()}` }).expect(201)).body.data.especie;
+  const createPlant = async (nome, faseAtual, especieId) => (await other("post", "/plantas", { nome, faseAtual, especieId }).expect(201)).body.data.planta;
+  const first = await createPlant("Planta monitorada", "MUDA", species.id);
+  const second = await createPlant("Outra planta ativa", "SEMENTE");
+  const archived = await createPlant("Planta arquivada", "MUDA");
+  const createDevice = async nome => (await other("post", "/dispositivos", { nome, simulado: true }).expect(201)).body.data;
+  const online = await createDevice("Dispositivo com status");
+  const idle = await createDevice("Dispositivo sem status");
+  const archivedDevice = await createDevice("Dispositivo arquivado");
+  await other("delete", `/dispositivos/${archivedDevice.id}`).expect(204);
+  const createZone = async planta => (await other("post", `/dispositivos/${online.id}/zonas`, { nome: planta.nome, plantaId: planta.id }).expect(201)).body.data;
+  const [a, b, c] = [await createZone(first), await createZone(second), await createZone(archived)];
+  const at = minute => `2025-01-01T10:${minute}:00Z`;
+  const send = async (type, medidoEm, extra) => {
+    const payload = { versao: 1, mensagemId: randomUUID(), dispositivoId: online.id, medidoEm, simulado: true, ...extra };
+    assert.equal(await service.ingest(`${prefix}/${online.id}/${type}`, Buffer.from(JSON.stringify(payload))), true);
+  };
+  await send("status", at("00"), { estado: "ONLINE" });
+  for (const [zoneId, minute, umidadeSoloPercentual] of [[a.id, "02", 60], [a.id, "00", 20], [b.id, "01", 40], [c.id, "05", 90]]) {
+    await send("sensores", at(minute), { zonaId: zoneId, umidadeSoloPercentual, distanciaAguaCm: null });
+  }
+  const irrigacaoId = randomUUID();
+  for (const [zoneId, minute, execution] of [[a.id, "03", irrigacaoId], [b.id, "02", randomUUID()], [c.id, "06", randomUUID()]]) {
+    await send("eventos", at(minute), { zonaId: zoneId, tipo: "IRRIGACAO_FINALIZADA", irrigacaoId: execution, duracaoSegundos: 2 });
+  }
+  await other("delete", `/plantas/${archived.id}`).expect(204);
+  const dashboard = (await other("get", "/dashboard").expect(200)).body.data;
+  assert.deepEqual(dashboard.plantas, { total: 3, ativas: 2, arquivadas: 1, ativasIdentificadas: 1, ativasPorFase: { MUDA: 1, SEMENTE: 1 } });
+  assert.deepEqual(dashboard.ultimasLeituras.map(l => [l.plantaId, l.umidadeSoloPercentual]), [[first.id, 60], [second.id, 40]]);
+  assert.deepEqual(dashboard.irrigacoesRecentes.map(i => i.plantaId), [first.id, second.id]);
+  assert.equal(dashboard.irrigacoesRecentes[0].irrigacaoId, irrigacaoId);
+  assert.equal(dashboard.irrigacoesRecentes[0].simulado, true);
+  assert.deepEqual(dashboard.dispositivos.itens.map(d => [d.id, d.estado]), [[online.id, "ONLINE"], [idle.id, "SEM_STATUS"]]);
+  const limited = (await other("get", "/dashboard?limite=1").expect(200)).body.data;
+  assert.equal(limited.dispositivos.total, 2);
+  assert.equal(limited.dispositivos.online, 1);
+  assert.equal(limited.dispositivos.offline, 0);
+  assert.equal(limited.dispositivos.semStatus, 1);
+  assert.equal(limited.dispositivos.itens.length, 1);
+  assert.equal(limited.ultimasLeituras.length, 1);
+  assert.equal(limited.irrigacoesRecentes.length, 1);
+  const owner = (await api("get", "/dashboard").expect(200)).body.data;
+  assert.ok(!owner.dispositivos.itens.some(d => d.id === online.id));
+  assert.ok(!owner.irrigacoesRecentes.some(i => i.irrigacaoId === irrigacaoId));
+  assert.ok(!owner.ultimasLeituras.some(l => l.plantaId === first.id));
+});
 test("MQTT TCP real: broker local entrega leitura e configuração recebe ACK", { timeout: 20000 }, async t => {
   const binary = process.platform === "win32" ? "C:/Program Files/mosquitto/mosquitto.exe" : "/usr/sbin/mosquitto";
   if (!fs.existsSync(binary)) return t.skip("Mosquitto local não instalado");

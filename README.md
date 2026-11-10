@@ -8,7 +8,7 @@ O código da API está em `backend/`. A pasta `frontend/` está reservada para a
 cd "C:\Users\mateu\OneDrive\Documentos\ChatGPT\Projeto Senai\backend"
 ```
 
-**Implementado:** infraestrutura, autenticação JWT, catálogos, plantas, crescimento, fotos e integração PlantNet; comunicação MQTT com dispositivos/zonas, leituras de solo e reservatório, histórico persistente, status, eventos, configurações de monitoramento e confirmação; perfis de irrigação pessoais/de referência, associação versionada à planta e histórico de execuções reportadas. Consulte o [guia MQTT](docs/mqtt.md) e o [guia de perfis e irrigações](docs/irrigacao.md). Acionamento físico, controle PI/PID, firmware e dashboard permanecem para as próximas etapas. A automação continua desabilitada.
+**Implementado:** infraestrutura, autenticação JWT, catálogos, plantas, crescimento, fotos e integração PlantNet; comunicação MQTT com dispositivos/zonas, leituras de solo e reservatório, histórico persistente, status, eventos, configurações de monitoramento e confirmação; perfis de irrigação pessoais/de referência, associação versionada à planta e histórico de execuções reportadas. Consulte o [guia MQTT](docs/mqtt.md) e o [guia de perfis e irrigações](docs/irrigacao.md). O [dashboard da API](docs/api.md#dashboard) reúne o resumo da horta. Acionamento físico, controle PI/PID e firmware permanecem para as próximas etapas. A automação continua desabilitada.
 
 ## Requisitos
 
