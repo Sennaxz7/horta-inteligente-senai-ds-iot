@@ -87,14 +87,18 @@ Invoke-RestMethod -Uri "$apiHorta/auth/me" -Headers @{
 
 ## Testes automatizados
 
+Na pasta `backend`, instale as dependências com `npm.cmd ci` se ainda não estiverem instaladas. As duas suítes usam Jest; os testes HTTP enviam requisições com o `fetch` nativo do Node.js.
+
 ```powershell
 npm.cmd test
 npm.cmd run test:postgres
 ```
 
-`npm test` verifica configuração, validações, respostas HTTP, bcrypt, JWT, isolamento da identidade em `/me`, rate limiting, tratamento de falhas e o contrato da PlantNet. A persistência da autenticação nessa suíte usa um repositório em memória.
+`npm.cmd test` executa os testes unitários e HTTP. Verifica configuração, validações, autenticação, limites de requisição, tratamento de falhas e o contrato da PlantNet. A autenticação usa um repositório em memória; não é preciso iniciar o PostgreSQL, o Mosquitto ou a API.
 
-`test:postgres` cria um cluster PostgreSQL temporário, protegido por senha e acessível apenas por `127.0.0.1`, em uma porta livre. Aplica as migrations, testa a API com Sequelize e PostgreSQL reais e verifica rollback completo e reaplicação. Os testes cobrem propriedade dos recursos, transações, uploads e confirmação de identificação. As fotos de teste ficam dentro da pasta temporária. Ao final encerra e remove o cluster. Não utiliza a conexão do `.env` nem modifica o serviço PostgreSQL existente.
+`npm.cmd run test:postgres` precisa dos executáveis locais do PostgreSQL. O script cria um cluster temporário com senha em uma porta livre de `127.0.0.1`, aplica as migrations, roda a integração no Jest e verifica a reversão e a reaplicação das migrations. As fotos de teste ficam na pasta temporária, e o cluster é encerrado e removido ao final. O banco de desenvolvimento fica fora do teste.
+
+O Mosquitto é necessário apenas para o cenário que testa MQTT por TCP. A suíte inicia o broker local quando encontra o executável no caminho esperado. Sem o executável, o Jest indica esse cenário como ignorado e roda os demais. Veja a [verificação MQTT](docs/mqtt.md#verificação).
 
 Os testes não enviam fotos à PlantNet nem consomem sua quota: o serviço externo é simulado. A chamada real requer uma chave válida e acesso à internet.
 

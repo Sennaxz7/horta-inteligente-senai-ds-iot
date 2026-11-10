@@ -145,7 +145,8 @@ async function main() {
       "horta_inteligente_test",
     ]);
     run(process.execPath, [cli, "db:migrate"], { visible: true });
-    run(process.execPath, ["--test", "tests/integration/*.test.js"], {
+    const jest = path.join(root, "node_modules", "jest", "bin", "jest.js");
+    run(process.execPath, [jest, "--selectProjects", "integracao", "--runInBand"], {
       visible: true,
     });
     console.info(

@@ -1,9 +1,7 @@
-const { test, before, after } = require('node:test');
-const assert = require('node:assert/strict');
+const { createHttpClient } = require("../helpers/http");
 const { randomUUID } = require('node:crypto');
 const fs = require('node:fs/promises');
 const sharp = require('sharp');
-const request = require('supertest');
 const { createDatabase } = require('../../src/config/database');
 const { initializeModels } = require('../../src/models');
 const { fixture, testEnvironment, validUser } = require('../helpers/fixture');
@@ -11,7 +9,7 @@ const { fixture, testEnvironment, validUser } = require('../helpers/fixture');
 let database;
 let models;
 let env;
-let app;
+let client;
 let ownerToken;
 let otherToken;
 let ownerId;
@@ -24,21 +22,32 @@ const result = { results: [{ score: 0.94, species: {
 let fetchHandler = async () => Response.json(result);
 const fakeFetch = async (...args) => { fetchCount++; return fetchHandler(...args); };
 
-function api(method, path, body, token = ownerToken) {
-  const call = request(app)[method](`/api/v1${path}`).auth(token, { type: 'bearer' });
-  return body === undefined ? call : call.send(body);
+function api(method, path, status, body, token = ownerToken) {
+  return check(method.toUpperCase(), `/api/v1${path}`, status, { token: token, json: body ?? undefined });
 }
 async function plant(input = {}) {
-  const response = await api('post', '/plantas', { nome: 'Planta de teste', faseAtual: 'SEMENTE', ...input }).expect(201);
+  const response = await api('post', '/plantas', 201, { nome: 'Planta de teste', faseAtual: 'SEMENTE', ...input });
   return response.body.data.planta;
 }
+function photoForm(bytes, filename, contentType, fields = {}) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  form.append('foto', new Blob([bytes], { type: contentType }), filename);
+  return form;
+}
+
 async function photo(plantaId, token = ownerToken) {
-  const response = await request(app).post(`/api/v1/plantas/${plantaId}/fotos`).auth(token, { type: 'bearer' })
-    .field('tipo', 'IDENTIFICACAO').attach('foto', image, { filename: 'foto.png', contentType: 'image/png' }).expect(201);
+  const response = await check("POST", `/api/v1/plantas/${plantaId}/fotos`, 201, { token: token, body: photoForm(image, 'foto.png', 'image/png', { 'tipo': 'IDENTIFICACAO' }) });
   return response.body.data.foto;
 }
 
-before(async () => {
+async function check(method, url, status, options, http = client) {
+  const response = await http.request(method, url, options);
+  if (status !== undefined) expect(response.status).toBe(status);
+  return response;
+}
+
+beforeAll(async () => {
   if (process.env.HORTA_EPHEMERAL_POSTGRES !== 'true') throw new Error('Use npm run test:postgres.');
   env = testEnvironment({
     DATABASE_URL: process.env.DATABASE_URL, UPLOAD_DIR: process.env.UPLOAD_DIR,
@@ -46,78 +55,79 @@ before(async () => {
   });
   database = createDatabase(env);
   models = initializeModels(database);
-  ({ app } = await fixture({ env, database, models, fetchImpl: fakeFetch }));
+  const context = await fixture({ env, database, models, fetchImpl: fakeFetch });
+  client = await createHttpClient(context.app);
   for (const [email, isOwner] of [['dona-plantas@example.com', true], ['outro-plantas@example.com', false]]) {
-    const register = await request(app).post('/api/v1/auth/register').send({ ...validUser, email }).expect(201);
-    const login = await request(app).post('/api/v1/auth/login').send({ email, senha: validUser.senha }).expect(200);
+    const register = await check("POST", '/api/v1/auth/register', 201, { json: { ...validUser, email } });
+    const login = await check("POST", '/api/v1/auth/login', 200, { json: { email, senha: validUser.senha } });
     if (isOwner) { ownerToken = login.body.data.accessToken; ownerId = register.body.data.usuario.id; }
     else otherToken = login.body.data.accessToken;
   }
   image = await sharp({ create: { width: 32, height: 32, channels: 3, background: '#57963a' } }).png().toBuffer();
 });
-after(async () => { if (database) await database.close(); });
+afterAll(async () => { await client?.close(); if (database) await database.close(); });
 
 test('catálogos exigem autenticação e as cinco fases vêm da migration', async () => {
-  await request(app).get('/api/v1/fases-crescimento').expect(401);
-  await request(app).get('/api/v1/especies').expect(401);
-  await request(app).get('/api/v1/plantas').expect(401);
-  const phases = await api('get', '/fases-crescimento').expect(200);
-  assert.deepEqual(phases.body.data.map((item) => item.codigo), ['SEMENTE', 'GERMINACAO', 'MUDA', 'VEGETATIVA', 'ADULTA']);
+  await check("GET", '/api/v1/fases-crescimento', 401);
+  await check("GET", '/api/v1/especies', 401);
+  await check("GET", '/api/v1/plantas', 401);
+  const phases = await api('get', '/fases-crescimento', 200);
+  expect(phases.body.data.map((item) => item.codigo)).toStrictEqual(['SEMENTE', 'GERMINACAO', 'MUDA', 'VEGETATIVA', 'ADULTA']);
 });
 
 test('espécies possuem busca, paginação e unicidade independente de caixa/espaços', async () => {
-  const response = await api('post', '/especies', { nomeCientifico: ' Ocimum   basilicum ', nomeComum: 'Manjericão' }).expect(201);
+  const response = await api('post', '/especies', 201, { nomeCientifico: ' Ocimum   basilicum ', nomeComum: 'Manjericão' });
   speciesId = response.body.data.especie.id;
-  assert.equal(response.body.data.especie.nomeCientifico, 'Ocimum basilicum');
-  assert.equal(response.body.data.especie.nomeCientificoNormalizado, undefined);
-  await api('post', '/especies', { nomeCientifico: 'ocimum basilicum' }).expect(409);
-  await api('get', `/especies/${speciesId}`).expect(200);
-  const list = await api('get', '/especies?busca=manjeric%C3%A3o&limite=1').expect(200);
-  assert.equal(list.body.meta.total, 1);
-  assert.equal(list.body.data[0].id, speciesId);
-  await api('get', '/especies?limite=101').expect(422);
+  expect(response.body.data.especie.nomeCientifico).toBe('Ocimum basilicum');
+  expect(response.body.data.especie.nomeCientificoNormalizado).toBeUndefined();
+  await api('post', '/especies', 409, { nomeCientifico: 'ocimum basilicum' });
+  await api('get', `/especies/${speciesId}`, 200);
+  const list = await api('get', '/especies?busca=manjeric%C3%A3o&limite=1', 200);
+  expect(list.body.meta.total).toBe(1);
+  expect(list.body.data[0].id).toBe(speciesId);
+  await api('get', '/especies?limite=101', 422);
 });
 
 test('cadastro sem espécie gera histórico inicial e status não identificada', async () => {
   const p = await plant();
-  assert.equal(p.usuarioId, ownerId);
-  assert.equal(p.especieId, null);
-  assert.equal(p.statusIdentificacao, 'NAO_IDENTIFICADA');
-  assert.equal(p.especie, null);
-  const history = await api('get', `/plantas/${p.id}/crescimento`).expect(200);
-  assert.equal(history.body.meta.total, 1);
-  assert.equal(history.body.data[0].fase, 'SEMENTE');
+  expect(p.usuarioId).toBe(ownerId);
+  expect(p.especieId).toBe(null);
+  expect(p.statusIdentificacao).toBe('NAO_IDENTIFICADA');
+  expect(p.especie).toBe(null);
+  const history = await api('get', `/plantas/${p.id}/crescimento`, 200);
+  expect(history.body.meta.total).toBe(1);
+  expect(history.body.data[0].fase).toBe('SEMENTE');
 });
 
 test('cadastro manual associa espécie e não inventa confiança', async () => {
   const p = await plant({ especieId: speciesId, faseAtual: 'MUDA', dataPlantio: '2026-10-01' });
-  assert.equal(p.especie.nomeCientifico, 'Ocimum basilicum');
-  assert.equal(p.statusIdentificacao, 'IDENTIFICADA');
-  assert.equal(p.origemIdentificacao, 'MANUAL');
-  assert.equal(p.confiancaIdentificacao, null);
-  await api('post', '/plantas', { nome: 'inválida', faseAtual: 'SEMENTE', especieId: randomUUID() }).expect(404);
-  await api('post', '/plantas', { nome: 'inválida', faseAtual: 'SEMENTE', usuarioId: ownerId }).expect(422);
+  expect(p.especie.nomeCientifico).toBe('Ocimum basilicum');
+  expect(p.statusIdentificacao).toBe('IDENTIFICADA');
+  expect(p.origemIdentificacao).toBe('MANUAL');
+  expect(p.confiancaIdentificacao).toBe(null);
+  await api('post', '/plantas', 404, { nome: 'inválida', faseAtual: 'SEMENTE', especieId: randomUUID() });
+  await api('post', '/plantas', 422, { nome: 'inválida', faseAtual: 'SEMENTE', usuarioId: ownerId });
 });
 
 test('falha ao gravar histórico inicial desfaz a criação da planta', async () => {
   const original = models.HistoricoCrescimento.create;
   models.HistoricoCrescimento.create = async () => { throw new Error('falha de teste'); };
   try {
-    await api('post', '/plantas', { nome: 'Rollback cadastro', faseAtual: 'SEMENTE' }).expect(500);
+    await api('post', '/plantas', 500, { nome: 'Rollback cadastro', faseAtual: 'SEMENTE' });
   } finally { models.HistoricoCrescimento.create = original; }
-  assert.equal(await models.Planta.count({ where: { nome: 'Rollback cadastro' } }), 0);
+  expect(await models.Planta.count({ where: { nome: 'Rollback cadastro' } })).toBe(0);
 });
 
 test('listagem isola usuários, filtra fase e trata %/_ como texto literal', async () => {
   const p = await plant({ nome: 'Bandeja 100%_A', faseAtual: 'VEGETATIVA' });
-  const filtered = await api('get', '/plantas?busca=100%25_A&fase=VEGETATIVA&limite=1').expect(200);
-  assert.equal(filtered.body.meta.total, 1);
-  assert.equal(filtered.body.data[0].id, p.id);
-  const other = await api('get', '/plantas', undefined, otherToken).expect(200);
-  assert.equal(other.body.meta.total, 0);
-  await api('get', '/plantas?pagina=0').expect(422);
-  await api('get', '/plantas/invalido').expect(422);
-  await api('get', `/plantas/${randomUUID()}`).expect(404);
+  const filtered = await api('get', '/plantas?busca=100%25_A&fase=VEGETATIVA&limite=1', 200);
+  expect(filtered.body.meta.total).toBe(1);
+  expect(filtered.body.data[0].id).toBe(p.id);
+  const other = await api('get', '/plantas', 200, undefined, otherToken);
+  expect(other.body.meta.total).toBe(0);
+  await api('get', '/plantas?pagina=0', 422);
+  await api('get', '/plantas/invalido', 422);
+  await api('get', `/plantas/${randomUUID()}`, 404);
 });
 
 test('outra pessoa não lê, edita, arquiva, identifica ou envia fotos para a planta', async () => {
@@ -128,74 +138,70 @@ test('outra pessoa não lê, edita, arquiva, identifica ou envia fotos para a pl
     ['get', `/plantas/${p.id}/crescimento`], ['post', `/plantas/${p.id}/crescimento`, { fase: 'MUDA' }],
     ['get', `/plantas/${p.id}/fotos`], ['get', `/plantas/${p.id}/identificacoes`],
     ['post', `/plantas/${p.id}/identificacoes`, { fotoId: randomUUID() }],
-  ]) await api(method, path, body, otherToken).expect(403);
-  await request(app).post(`/api/v1/plantas/${p.id}/fotos`).auth(otherToken, { type: 'bearer' })
-    .attach('foto', image, 'foto.png').expect(403);
+  ]) await api(method, path, 403, body, otherToken);
+  await check("POST", `/api/v1/plantas/${p.id}/fotos`, 403, { token: otherToken, body: photoForm(image, 'foto.png', 'image/png') });
 });
 
 test('PATCH altera dados básicos e espécie é alterada somente pela rota própria', async () => {
   const p = await plant();
-  const updated = await api('patch', `/plantas/${p.id}`, { nome: 'Novo nome', apelido: 'Vaso 1' }).expect(200);
-  assert.equal(updated.body.data.planta.nome, 'Novo nome');
-  await api('patch', `/plantas/${p.id}`, { faseAtual: 'ADULTA' }).expect(422);
-  await api('patch', `/plantas/${p.id}`, { especieId: speciesId }).expect(422);
-  const manual = await api('put', `/plantas/${p.id}/especie`, { especieId: speciesId }).expect(200);
-  assert.equal(manual.body.data.planta.origemIdentificacao, 'MANUAL');
-  const cleared = await api('put', `/plantas/${p.id}/especie`, { especieId: null }).expect(200);
-  assert.equal(cleared.body.data.planta.statusIdentificacao, 'NAO_IDENTIFICADA');
+  const updated = await api('patch', `/plantas/${p.id}`, 200, { nome: 'Novo nome', apelido: 'Vaso 1' });
+  expect(updated.body.data.planta.nome).toBe('Novo nome');
+  await api('patch', `/plantas/${p.id}`, 422, { faseAtual: 'ADULTA' });
+  await api('patch', `/plantas/${p.id}`, 422, { especieId: speciesId });
+  const manual = await api('put', `/plantas/${p.id}/especie`, 200, { especieId: speciesId });
+  expect(manual.body.data.planta.origemIdentificacao).toBe('MANUAL');
+  const cleared = await api('put', `/plantas/${p.id}/especie`, 200, { especieId: null });
+  expect(cleared.body.data.planta.statusIdentificacao).toBe('NAO_IDENTIFICADA');
 });
 
 test('crescimento atualiza fase e registros antigos não substituem a fase mais recente', async () => {
   const p = await plant();
-  const current = await api('post', `/plantas/${p.id}/crescimento`, { fase: 'MUDA', alturaCm: 8.5 }).expect(201);
-  assert.equal(current.body.data.faseAtual, 'MUDA');
-  const old = await api('post', `/plantas/${p.id}/crescimento`, {
+  const current = await api('post', `/plantas/${p.id}/crescimento`, 201, { fase: 'MUDA', alturaCm: 8.5 });
+  expect(current.body.data.faseAtual).toBe('MUDA');
+  const old = await api('post', `/plantas/${p.id}/crescimento`, 201, {
     fase: 'GERMINACAO', registradoEm: '2020-01-01T12:00:00Z', observacao: 'Registro antigo.',
-  }).expect(201);
-  assert.equal(old.body.data.faseAtual, 'MUDA');
-  const detail = await api('get', `/plantas/${p.id}`).expect(200);
-  assert.equal(detail.body.data.planta.faseAtual, 'MUDA');
-  const period = await api('get', `/plantas/${p.id}/crescimento?de=2019-01-01T00:00:00Z&ate=2021-01-01T00:00:00Z`).expect(200);
-  assert.equal(period.body.meta.total, 1);
+  });
+  expect(old.body.data.faseAtual).toBe('MUDA');
+  const detail = await api('get', `/plantas/${p.id}`, 200);
+  expect(detail.body.data.planta.faseAtual).toBe('MUDA');
+  const period = await api('get', `/plantas/${p.id}/crescimento?de=2019-01-01T00:00:00Z&ate=2021-01-01T00:00:00Z`, 200);
+  expect(period.body.meta.total).toBe(1);
 });
 
 test('crescimento e atualização da fase têm rollback conjunto', async () => {
   const p = await plant();
   models.Planta.addHook('beforeUpdate', 'falhaCrescimento', () => { throw new Error('falha controlada'); });
-  try { await api('post', `/plantas/${p.id}/crescimento`, { fase: 'ADULTA' }).expect(500); }
+  try { await api('post', `/plantas/${p.id}/crescimento`, 500, { fase: 'ADULTA' }); }
   finally { models.Planta.removeHook('beforeUpdate', 'falhaCrescimento'); }
-  assert.equal(await models.HistoricoCrescimento.count({ where: { plantaId: p.id } }), 1);
-  assert.equal((await models.Planta.findByPk(p.id)).faseAtual, 'SEMENTE');
+  expect(await models.HistoricoCrescimento.count({ where: { plantaId: p.id } })).toBe(1);
+  expect((await models.Planta.findByPk(p.id)).faseAtual).toBe('SEMENTE');
 });
 
 test('foto é reencodada como JPEG, persistida e entregue apenas ao proprietário', async () => {
   const p = await plant();
   const f = await photo(p.id);
-  assert.equal(f.mimeType, 'image/jpeg');
-  assert.equal(f.chaveArquivo, undefined);
-  const response = await api('get', `/plantas/${p.id}/fotos/${f.id}/arquivo`).expect(200);
-  assert.equal(response.headers['content-type'], 'image/jpeg');
+  expect(f.mimeType).toBe('image/jpeg');
+  expect(f.chaveArquivo).toBeUndefined();
+  const response = await api('get', `/plantas/${p.id}/fotos/${f.id}/arquivo`, 200);
+  expect(response.headers['content-type']).toBe('image/jpeg');
   const metadata = await sharp(response.body).metadata();
-  assert.equal(metadata.format, 'jpeg');
-  assert.equal(metadata.exif, undefined);
-  await request(app).get(f.arquivoUrl).expect(401);
-  await api('get', `/plantas/${p.id}/fotos/${f.id}/arquivo`, undefined, otherToken).expect(403);
-  const list = await api('get', `/plantas/${p.id}/fotos`).expect(200);
-  assert.equal(list.body.meta.total, 1);
-  const record = await api('post', `/plantas/${p.id}/crescimento`, { fase: 'MUDA', fotoId: f.id }).expect(201);
-  assert.equal(record.body.data.registro.fotoId, f.id);
+  expect(metadata.format).toBe('jpeg');
+  expect(metadata.exif).toBeUndefined();
+  await check("GET", f.arquivoUrl, 401);
+  await api('get', `/plantas/${p.id}/fotos/${f.id}/arquivo`, 403, undefined, otherToken);
+  const list = await api('get', `/plantas/${p.id}/fotos`, 200);
+  expect(list.body.meta.total).toBe(1);
+  const record = await api('post', `/plantas/${p.id}/crescimento`, 201, { fase: 'MUDA', fotoId: f.id });
+  expect(record.body.data.registro.fotoId).toBe(f.id);
 });
 
 test('upload rejeita conteúdo falso, ausência de arquivo, tipo inadequado e tamanho excessivo', async () => {
   const p = await plant();
-  await request(app).post(`/api/v1/plantas/${p.id}/fotos`).auth(ownerToken, { type: 'bearer' })
-    .attach('foto', Buffer.from('não sou imagem'), { filename: 'falsa.jpg', contentType: 'image/jpeg' }).expect(422);
-  await api('post', `/plantas/${p.id}/fotos`, {}).expect(422);
-  await request(app).post(`/api/v1/plantas/${p.id}/fotos`).auth(ownerToken, { type: 'bearer' })
-    .attach('foto', Buffer.from('<svg/>'), { filename: 'imagem.svg', contentType: 'image/svg+xml' }).expect(415);
-  await request(app).post(`/api/v1/plantas/${p.id}/fotos`).auth(ownerToken, { type: 'bearer' })
-    .attach('foto', Buffer.alloc(5 * 1024 * 1024 + 1), { filename: 'grande.jpg', contentType: 'image/jpeg' }).expect(413);
-  assert.equal(await models.FotoPlanta.count({ where: { plantaId: p.id } }), 0);
+  await check("POST", `/api/v1/plantas/${p.id}/fotos`, 422, { token: ownerToken, body: photoForm(Buffer.from('não sou imagem'), 'falsa.jpg', 'image/jpeg') });
+  await api('post', `/plantas/${p.id}/fotos`, 422, {});
+  await check("POST", `/api/v1/plantas/${p.id}/fotos`, 415, { token: ownerToken, body: photoForm(Buffer.from('<svg/>'), 'imagem.svg', 'image/svg+xml') });
+  await check("POST", `/api/v1/plantas/${p.id}/fotos`, 413, { token: ownerToken, body: photoForm(Buffer.alloc(5 * 1024 * 1024 + 1), 'grande.jpg', 'image/jpeg') });
+  expect(await models.FotoPlanta.count({ where: { plantaId: p.id } })).toBe(0);
 });
 
 test('falha no banco após gravar arquivo compensa a criação do arquivo', async () => {
@@ -204,43 +210,42 @@ test('falha no banco após gravar arquivo compensa a criação do arquivo', asyn
   const beforeFiles = (await fs.readdir(env.UPLOAD_DIR)).sort();
   models.FotoPlanta.create = async () => { throw new Error('falha ao persistir foto'); };
   try {
-    await request(app).post(`/api/v1/plantas/${p.id}/fotos`).auth(ownerToken, { type: 'bearer' })
-      .attach('foto', image, { filename: 'foto.png', contentType: 'image/png' }).expect(500);
+    await check("POST", `/api/v1/plantas/${p.id}/fotos`, 500, { token: ownerToken, body: photoForm(image, 'foto.png', 'image/png') });
   } finally { models.FotoPlanta.create = original; }
-  assert.deepEqual((await fs.readdir(env.UPLOAD_DIR)).sort(), beforeFiles);
+  expect((await fs.readdir(env.UPLOAD_DIR)).sort()).toStrictEqual(beforeFiles);
 });
 
 test('foto de outra planta é rejeitada no crescimento, identificação e download', async () => {
   const a = await plant();
   const b = await plant();
   const f = await photo(a.id);
-  await api('post', `/plantas/${b.id}/crescimento`, { fase: 'MUDA', fotoId: f.id }).expect(404);
-  await api('post', `/plantas/${b.id}/identificacoes`, { fotoId: f.id }).expect(404);
-  await api('get', `/plantas/${b.id}/fotos/${f.id}/arquivo`).expect(404);
-  await assert.rejects(() => models.HistoricoCrescimento.create({
+  await api('post', `/plantas/${b.id}/crescimento`, 404, { fase: 'MUDA', fotoId: f.id });
+  await api('post', `/plantas/${b.id}/identificacoes`, 404, { fotoId: f.id });
+  await api('get', `/plantas/${b.id}/fotos/${f.id}/arquivo`, 404);
+  await expect(models.HistoricoCrescimento.create({
     plantaId: b.id, fotoId: f.id, fase: 'MUDA', registradoEm: new Date(),
-  }), (error) => error.original.code === '23503');
+  })).rejects.toMatchObject({ original: { code: '23503' } });
 });
 
 test('PlantNet gera sugestões sem alterar espécie e confirmação usa o candidato persistido', async () => {
   const p = await plant();
   const f = await photo(p.id);
-  const identified = await api('post', `/plantas/${p.id}/identificacoes`, { fotoId: f.id, orgao: 'leaf' }).expect(201);
+  const identified = await api('post', `/plantas/${p.id}/identificacoes`, 201, { fotoId: f.id, orgao: 'leaf' });
   const identification = identified.body.data.identificacao;
-  assert.equal(identification.status, 'CONCLUIDA');
-  const pending = await api('get', `/plantas/${p.id}`).expect(200);
-  assert.equal(pending.body.data.planta.especieId, null);
-  assert.equal(pending.body.data.planta.statusIdentificacao, 'IDENTIFICACAO_PENDENTE');
-  await api('post', `/plantas/${p.id}/identificacoes/${identification.id}/confirmacao`, { candidatoIndice: 4 }).expect(422);
-  await api('post', `/plantas/${p.id}/identificacoes/${identification.id}/confirmacao`, { candidatoIndice: 0 }, otherToken).expect(403);
-  const confirmed = await api('post', `/plantas/${p.id}/identificacoes/${identification.id}/confirmacao`, { candidatoIndice: 0 }).expect(200);
-  assert.equal(confirmed.body.data.planta.especieId, speciesId);
-  assert.equal(confirmed.body.data.planta.confiancaIdentificacao, 0.94);
-  assert.equal(confirmed.body.data.planta.origemIdentificacao, 'API');
-  assert.equal(confirmed.body.data.identificacao.status, 'CONFIRMADA');
-  await api('post', `/plantas/${p.id}/identificacoes/${identification.id}/confirmacao`, { candidatoIndice: 0 }).expect(409);
-  const history = await api('get', `/plantas/${p.id}/identificacoes`).expect(200);
-  assert.equal(history.body.meta.total, 1);
+  expect(identification.status).toBe('CONCLUIDA');
+  const pending = await api('get', `/plantas/${p.id}`, 200);
+  expect(pending.body.data.planta.especieId).toBe(null);
+  expect(pending.body.data.planta.statusIdentificacao).toBe('IDENTIFICACAO_PENDENTE');
+  await api('post', `/plantas/${p.id}/identificacoes/${identification.id}/confirmacao`, 422, { candidatoIndice: 4 });
+  await api('post', `/plantas/${p.id}/identificacoes/${identification.id}/confirmacao`, 403, { candidatoIndice: 0 }, otherToken);
+  const confirmed = await api('post', `/plantas/${p.id}/identificacoes/${identification.id}/confirmacao`, 200, { candidatoIndice: 0 });
+  expect(confirmed.body.data.planta.especieId).toBe(speciesId);
+  expect(confirmed.body.data.planta.confiancaIdentificacao).toBe(0.94);
+  expect(confirmed.body.data.planta.origemIdentificacao).toBe('API');
+  expect(confirmed.body.data.identificacao.status).toBe('CONFIRMADA');
+  await api('post', `/plantas/${p.id}/identificacoes/${identification.id}/confirmacao`, 409, { candidatoIndice: 0 });
+  const history = await api('get', `/plantas/${p.id}/identificacoes`, 200);
+  expect(history.body.meta.total).toBe(1);
 });
 
 test('falha externa encerra identificação pendente e registra apenas código seguro', async () => {
@@ -248,13 +253,13 @@ test('falha externa encerra identificação pendente e registra apenas código s
   const f = await photo(p.id);
   fetchHandler = async () => { throw new Error(`api-key=${env.PLANTNET_API_KEY}`); };
   try {
-    const response = await api('post', `/plantas/${p.id}/identificacoes`, { fotoId: f.id }).expect(502);
-    assert.equal(JSON.stringify(response.body).includes(env.PLANTNET_API_KEY), false);
+    const response = await api('post', `/plantas/${p.id}/identificacoes`, 502, { fotoId: f.id });
+    expect(JSON.stringify(response.body).includes(env.PLANTNET_API_KEY)).toBe(false);
   } finally { fetchHandler = async () => Response.json(result); }
   const stored = await models.IdentificacaoPlanta.findOne({ where: { plantaId: p.id } });
-  assert.equal(stored.status, 'ERRO');
-  assert.equal(stored.codigoErro, 'PLANTNET_UNAVAILABLE');
-  assert.equal((await models.Planta.findByPk(p.id)).statusIdentificacao, 'NAO_IDENTIFICADA');
+  expect(stored.status).toBe('ERRO');
+  expect(stored.codigoErro).toBe('PLANTNET_UNAVAILABLE');
+  expect((await models.Planta.findByPk(p.id)).statusIdentificacao).toBe('NAO_IDENTIFICADA');
 });
 
 test('resposta vazia da PlantNet mantém planta sem identificação e não pode ser confirmada', async () => {
@@ -262,11 +267,11 @@ test('resposta vazia da PlantNet mantém planta sem identificação e não pode 
   const f = await photo(p.id);
   fetchHandler = async () => Response.json({ results: [] });
   try {
-    const response = await api('post', `/plantas/${p.id}/identificacoes`, { fotoId: f.id }).expect(201);
-    assert.deepEqual(response.body.data.identificacao.candidatos, []);
-    await api('post', `/plantas/${p.id}/identificacoes/${response.body.data.identificacao.id}/confirmacao`, { candidatoIndice: 0 }).expect(422);
+    const response = await api('post', `/plantas/${p.id}/identificacoes`, 201, { fotoId: f.id });
+    expect(response.body.data.identificacao.candidatos).toStrictEqual([]);
+    await api('post', `/plantas/${p.id}/identificacoes/${response.body.data.identificacao.id}/confirmacao`, 422, { candidatoIndice: 0 });
   } finally { fetchHandler = async () => Response.json(result); }
-  assert.equal((await models.Planta.findByPk(p.id)).statusIdentificacao, 'NAO_IDENTIFICADA');
+  expect((await models.Planta.findByPk(p.id)).statusIdentificacao).toBe('NAO_IDENTIFICADA');
 });
 
 test('sem chave PlantNet a API mantém cadastro e fotos e rejeita apenas a identificação', async () => {
@@ -274,9 +279,14 @@ test('sem chave PlantNet a API mantém cadastro e fotos e rejeita apenas a ident
   const f = await photo(p.id);
   const isolated = await fixture({ env: { ...env, PLANTNET_API_KEY: '' }, database, models, fetchImpl: fakeFetch });
   const beforeCount = fetchCount;
-  await request(isolated.app).post(`/api/v1/plantas/${p.id}/identificacoes`).auth(ownerToken, { type: 'bearer' }).send({ fotoId: f.id }).expect(503);
-  assert.equal(fetchCount, beforeCount);
-  assert.equal(await models.IdentificacaoPlanta.count({ where: { plantaId: p.id } }), 0);
+  const temporaryClient = await createHttpClient(isolated.app);
+  try {
+    await check("POST", `/api/v1/plantas/${p.id}/identificacoes`, 503, { token: ownerToken, json: { fotoId: f.id } }, temporaryClient);
+  } finally {
+    await temporaryClient.close();
+  }
+  expect(fetchCount).toBe(beforeCount);
+  expect(await models.IdentificacaoPlanta.count({ where: { plantaId: p.id } })).toBe(0);
 });
 
 test('solicitações simultâneas não duplicam chamada externa nem sobrescrevem espécie manual', async () => {
@@ -289,16 +299,16 @@ test('solicitações simultâneas não duplicam chamada externa nem sobrescrevem
     started();
     return new Promise((resolve) => { release = () => resolve(Response.json(result)); });
   };
-  const pending = api('post', `/plantas/${p.id}/identificacoes`, { fotoId: f.id }).then((response) => response);
+  const pending = api('post', `/plantas/${p.id}/identificacoes`, undefined, { fotoId: f.id });
   try {
     await Promise.race([entered, pending.then((response) => { throw new Error(`Não chamou PlantNet: ${response.status}`); })]);
-    await api('post', `/plantas/${p.id}/identificacoes`, { fotoId: f.id }).expect(409);
-    await api('put', `/plantas/${p.id}/especie`, { especieId: speciesId }).expect(200);
+    await api('post', `/plantas/${p.id}/identificacoes`, 409, { fotoId: f.id });
+    await api('put', `/plantas/${p.id}/especie`, 200, { especieId: speciesId });
     release();
-    assert.equal((await pending).status, 201);
+    expect((await pending).status).toBe(201);
     const stored = await models.Planta.findByPk(p.id);
-    assert.equal(stored.origemIdentificacao, 'MANUAL');
-    assert.equal(stored.confiancaIdentificacao, null);
+    expect(stored.origemIdentificacao).toBe('MANUAL');
+    expect(stored.confiancaIdentificacao).toBe(null);
   } finally { if (release) release(); fetchHandler = async () => Response.json(result); }
 });
 
@@ -308,27 +318,27 @@ test('identificação interrompida antiga permite nova tentativa', async () => {
   const stale = await models.IdentificacaoPlanta.create({
     plantaId: p.id, fotoId: f.id, status: 'PENDENTE', createdAt: new Date(Date.now() - 180000),
   });
-  await api('post', `/plantas/${p.id}/identificacoes`, { fotoId: f.id }).expect(201);
+  await api('post', `/plantas/${p.id}/identificacoes`, 201, { fotoId: f.id });
   await stale.reload();
-  assert.equal(stale.status, 'ERRO');
-  assert.equal(stale.codigoErro, 'INTERRUPTED');
+  expect(stale.status).toBe('ERRO');
+  expect(stale.codigoErro).toBe('INTERRUPTED');
 });
 
 test('arquivamento é idempotente, preserva histórico/fotos e bloqueia novas alterações', async () => {
   const p = await plant();
   const f = await photo(p.id);
-  await api('delete', `/plantas/${p.id}`).expect(204);
-  await api('delete', `/plantas/${p.id}`).expect(204);
-  await api('patch', `/plantas/${p.id}`, { nome: 'bloqueada' }).expect(409);
-  await api('put', `/plantas/${p.id}/especie`, { especieId: speciesId }).expect(409);
-  await api('post', `/plantas/${p.id}/crescimento`, { fase: 'MUDA' }).expect(409);
-  await api('post', `/plantas/${p.id}/identificacoes`, { fotoId: f.id }).expect(409);
-  await request(app).post(`/api/v1/plantas/${p.id}/fotos`).auth(ownerToken, { type: 'bearer' }).attach('foto', image, 'foto.png').expect(409);
-  const archived = await api('get', '/plantas?arquivadas=true').expect(200);
-  assert.ok(archived.body.data.some((item) => item.id === p.id));
-  const active = await api('get', '/plantas?limite=100').expect(200);
-  assert.equal(active.body.data.some((item) => item.id === p.id), false);
-  await api('get', `/plantas/${p.id}/fotos/${f.id}/arquivo`).expect(200);
-  assert.equal(await models.HistoricoCrescimento.count({ where: { plantaId: p.id } }), 1);
-  assert.ok((await models.Planta.findByPk(p.id)).arquivadaEm);
+  await api('delete', `/plantas/${p.id}`, 204);
+  await api('delete', `/plantas/${p.id}`, 204);
+  await api('patch', `/plantas/${p.id}`, 409, { nome: 'bloqueada' });
+  await api('put', `/plantas/${p.id}/especie`, 409, { especieId: speciesId });
+  await api('post', `/plantas/${p.id}/crescimento`, 409, { fase: 'MUDA' });
+  await api('post', `/plantas/${p.id}/identificacoes`, 409, { fotoId: f.id });
+  await check("POST", `/api/v1/plantas/${p.id}/fotos`, 409, { token: ownerToken, body: photoForm(image, 'foto.png', 'image/png') });
+  const archived = await api('get', '/plantas?arquivadas=true', 200);
+  expect(archived.body.data.some((item) => item.id === p.id)).toBeTruthy();
+  const active = await api('get', '/plantas?limite=100', 200);
+  expect(active.body.data.some((item) => item.id === p.id)).toBe(false);
+  await api('get', `/plantas/${p.id}/fotos/${f.id}/arquivo`, 200);
+  expect(await models.HistoricoCrescimento.count({ where: { plantaId: p.id } })).toBe(1);
+  expect((await models.Planta.findByPk(p.id)).arquivadaEm).toBeTruthy();
 });

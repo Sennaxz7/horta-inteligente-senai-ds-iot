@@ -17,7 +17,7 @@
     "db:migrate": "sequelize-cli db:migrate",
     "db:migrate:status": "sequelize-cli db:migrate:status",
     "db:migrate:undo": "sequelize-cli db:migrate:undo",
-    "test": "node --test tests/unit/*.test.js tests/http/*.test.js",
+    "test": "jest --selectProjects rapidos --runInBand",
     "test:postgres": "node scripts/test-postgres.js"
   },
   "dependencies": {
@@ -42,7 +42,7 @@
     }
   },
   "devDependencies": {
-    "sequelize-cli": "^6.6.5",
-    "supertest": "^7.3.1"
+    "jest": "^30.5.2",
+    "sequelize-cli": "^6.6.5"
   }
 }

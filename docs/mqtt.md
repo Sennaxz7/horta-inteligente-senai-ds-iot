@@ -166,4 +166,6 @@ Referências: [MQTT.js](https://github.com/mqttjs/MQTT.js), [Mosquitto configura
 
 ## Verificação
 
-`npm.cmd test`: validação e autenticação. `npm.cmd run test:postgres`: cluster PostgreSQL temporário isolado, migrations/rollback, persistência, deduplicação concorrente, isolamento de usuários e troca MQTT TCP real com Mosquitto local, quando instalado. O teste de rede local não exige acesso ao broker público nem altera o banco de desenvolvimento.
+Na pasta `backend`, `npm.cmd test` executa no Jest os testes unitários e HTTP sem PostgreSQL ou broker. As requisições HTTP usam o `fetch` nativo do Node.js.
+
+`npm.cmd run test:postgres` requer os executáveis do PostgreSQL para criar um banco temporário e testar persistência, deduplicação, isolamento e reversão e reaplicação das migrations. O cenário MQTT por TCP inicia o Mosquitto local quando encontra `C:\Program Files\mosquitto\mosquitto.exe` no Windows ou `/usr/sbin/mosquitto` nos demais ambientes. Sem esse executável, só esse cenário é ignorado. Não é preciso iniciar o broker manualmente nem usar um broker público ou o banco de desenvolvimento.
