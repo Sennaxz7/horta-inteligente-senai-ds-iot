@@ -13,6 +13,12 @@ const timestamp = z.iso
     "A data não pode estar no futuro.",
   );
 const nome = z.string().trim().min(1).max(120);
+const period = {
+  de: z.iso.datetime({ offset: true }).optional(),
+  ate: z.iso.datetime({ offset: true }).optional(),
+};
+const validPeriod = ({ de, ate }) => !de || !ate || Date.parse(de) <= Date.parse(ate);
+const periodError = "A data inicial deve ser anterior à final.";
 const details = {
   nome,
   apelido: z.string().trim().min(1).max(120).nullable().optional(),
@@ -85,17 +91,15 @@ module.exports = {
   crescimentoQuerySchema: z
     .object({
       ...pagination,
-      de: z.iso.datetime({ offset: true }).optional(),
-      ate: z.iso.datetime({ offset: true }).optional(),
+      ...period,
     })
     .strict()
-    .refine(
-      (value) =>
-        !value.de ||
-        !value.ate ||
-        Date.parse(value.de) <= Date.parse(value.ate),
-      "A data inicial deve ser anterior à final.",
-    ),
+    .refine(validPeriod, periodError),
+  historicoQuerySchema: z.object({
+    ...pagination,
+    ...period,
+    tipo: z.enum(["CRESCIMENTO", "IDENTIFICACAO", "LEITURA", "IRRIGACAO"]).optional(),
+  }).strict().refine(validPeriod, periodError),
   fotoCreateSchema: z
     .object({
       tipo: z.enum(["GERAL", "CRESCIMENTO", "IDENTIFICACAO"]).default("GERAL"),

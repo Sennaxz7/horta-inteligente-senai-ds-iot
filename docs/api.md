@@ -4,6 +4,21 @@ Rotas adicionais: [dispositivos e monitoramento MQTT](mqtt.md) e [perfis de irri
 
 Base: `/api/v1`. Corpos usam `Content-Type: application/json`, exceto o upload de foto, que usa multipart. Campos desconhecidos são rejeitados. O limite do corpo JSON é 16 KiB.
 
+## Histórico unificado da planta
+
+`GET /api/v1/plantas/:id/historico` exige JWT Bearer e pode ser consultado pelo dono mesmo se a planta estiver arquivada. A rota reúne registros já gravados de crescimento, tentativas de identificação por foto, leituras de sensores e execuções de irrigação. Cada item contém `id` do registro original, `tipo`, `data` e `dados` específicos do tipo. Leituras e irrigações permanecem com a planta originalmente registrada, mesmo após troca de zona. Eventos MQTT brutos e status do dispositivo não entram na linha do tempo.
+
+| Tipo | Data de ordenação e filtro | Exemplos de dados |
+| --- | --- | --- |
+| `CRESCIMENTO` | Momento registrado | Fase, altura, observação e foto |
+| `IDENTIFICACAO` | Criação da tentativa | Status atual, foto e espécie confirmada |
+| `LEITURA` | Momento da medição | Umidade do solo, nível do reservatório e indicador de simulação |
+| `IRRIGACAO` | Início; se ausente, término | Resultado, duração, dispositivo e indicador de simulação |
+
+Filtros opcionais: `tipo` (um dos quatro acima), `de` e `ate` (ISO 8601 com fuso, inclusive). `pagina` começa em 1; `limite` tem padrão 20 e máximo 100. Os registros são reunidos antes da paginação e ordenados da data mais recente para a mais antiga, com desempate por tipo crescente e UUID decrescente.
+
+Exemplo: `GET /api/v1/plantas/UUID_DA_PLANTA/historico?tipo=IRRIGACAO&pagina=1&limite=10`. Retorna `200` com `{data: [...], meta: {pagina, limite, total, totalPaginas}}`. Sem resultados, `data` é vazio. Planta inexistente retorna `404`, planta de outro usuário retorna `403`, token ausente retorna `401` e parâmetros inválidos retornam `422`.
+
 ## Rotas implementadas
 
 | Método | Caminho | Autenticação | Sucesso |

@@ -62,6 +62,14 @@ module.exports = function recursoRoutes({ env, authService, services }) {
     plantas.atualizar,
   );
   router.delete("/plantas/:id", id, plantas.arquivar);
+  router.get(
+    "/plantas/:id/historico",
+    id,
+    validate(schemas.historicoQuerySchema, "query"),
+    async (req, res) => res.json(await services.historicoService.list(
+      req.validatedParams.id, req.usuario.id, req.validatedQuery,
+    )),
+  );
   router.put(
     "/plantas/:id/especie",
     id,

@@ -5,6 +5,7 @@ const FileStorageService = require("./FileStorageService");
 const FotoService = require("./FotoService");
 const PlantNetService = require("./PlantNetService");
 const IdentificacaoService = require("./IdentificacaoService");
+const HistoricoService = require("./HistoricoService");
 
 function createServices({ models, database, env, fetchImpl }) {
   const catalogoService = new CatalogoService({ models });
@@ -47,6 +48,7 @@ function createServices({ models, database, env, fetchImpl }) {
     crescimentoService,
     fotoService,
     identificacaoService,
+    historicoService: new HistoricoService({ database, plantaService }),
   };
 }
 

@@ -146,6 +146,55 @@ test("PATCH de zona preserva campos omitidos, aceita null e valida acesso e vín
   assert.equal(cleared.calibracao, null);
   assert.equal(cleared.nome, renamed.nome);
 });
+test("histórico unificado pagina os quatro tipos por data e preserva a origem após desvínculo", async () => {
+  const plant = (await api("post", "/plantas", { nome: "Vaso com histórico", faseAtual: "MUDA" }).expect(201)).body.data.planta;
+  const target = (await api("post", `/dispositivos/${device.id}/zonas`, { nome: "Zona da linha do tempo", plantaId: plant.id }).expect(201)).body.data;
+  const date = hour => `2025-01-01T${hour}:00:00Z`;
+  const growth = await models.HistoricoCrescimento.create({ plantaId: plant.id, fase: "MUDA", registradoEm: date("08"), alturaCm: 8.5 });
+  const foto = await models.FotoPlanta.create({
+    plantaId: plant.id, chaveArquivo: `${randomUUID()}.jpg`, mimeType: "image/jpeg",
+    tamanhoBytes: 1, capturadaEm: date("09"), tipo: "IDENTIFICACAO",
+  });
+  const identification = await models.IdentificacaoPlanta.create({ plantaId: plant.id, fotoId: foto.id, status: "PENDENTE", createdAt: date("09") });
+  const ingest = (type, data) => service.ingest(`${prefix}/${device.id}/${type}`, Buffer.from(JSON.stringify(data)));
+  const reading = message({ zonaId: target.id, medidoEm: date("10") });
+  assert.equal(await ingest("sensores", reading), true);
+  const execution = randomUUID();
+  assert.equal(await ingest("eventos", {
+    versao: 1, mensagemId: randomUUID(), dispositivoId: device.id, zonaId: target.id,
+    medidoEm: date("10"), simulado: true, tipo: "IRRIGACAO_FINALIZADA",
+    irrigacaoId: execution, duracaoSegundos: 2,
+  }), true);
+  await api("delete", `/plantas/${plant.id}/zona`).expect(204);
+  await api("delete", `/plantas/${plant.id}`).expect(204);
+
+  const path = `/plantas/${plant.id}/historico`;
+  const range = `de=${date("08")}&ate=${date("10")}`;
+  const first = (await api("get", `${path}?${range}&limite=2`).expect(200)).body;
+  assert.deepEqual(first.meta, { pagina: 1, limite: 2, total: 4, totalPaginas: 2 });
+  assert.deepEqual(first.data.map(item => item.tipo), ["IRRIGACAO", "LEITURA"]);
+  assert.equal(first.data[0].dados.irrigacaoId, execution);
+  assert.equal(first.data[0].dados.iniciadaEm, null);
+  assert.equal(Date.parse(first.data[0].data), Date.parse(date("10")));
+  assert.equal(first.data[1].dados.umidadeSoloPercentual, 45);
+  const second = (await api("get", `${path}?${range}&limite=2&pagina=2`).expect(200)).body;
+  assert.deepEqual(second.data.map(item => item.id), [identification.id, growth.id]);
+  assert.equal(second.data[0].dados.fotoId, foto.id);
+  assert.equal(second.data[0].dados.chaveArquivo, undefined);
+  const filtered = (await api("get", `${path}?${range}&tipo=CRESCIMENTO`).expect(200)).body;
+  assert.equal(filtered.meta.total, 1);
+  assert.equal(filtered.data[0].dados.alturaCm, 8.5);
+  const empty = (await api("get", `${path}?${range}&limite=2&pagina=3`).expect(200)).body;
+  assert.deepEqual(empty.data, []);
+  assert.equal(empty.meta.total, 4);
+
+  await request(app).get(`/api/v1${path}`).expect(401);
+  await api("get", path, null, otherToken).expect(403);
+  await api("get", `/plantas/${randomUUID()}/historico`).expect(404);
+  for (const query of ["tipo=OUTRO", "limite=101", `de=${date("10")}&ate=${date("08")}`]) {
+    await api("get", `${path}?${query}`).expect(422);
+  }
+});
 test("MQTT TCP real: broker local entrega leitura e configuração recebe ACK", { timeout: 20000 }, async t => {
   const binary = process.platform === "win32" ? "C:/Program Files/mosquitto/mosquitto.exe" : "/usr/sbin/mosquitto";
   if (!fs.existsSync(binary)) return t.skip("Mosquitto local não instalado");
