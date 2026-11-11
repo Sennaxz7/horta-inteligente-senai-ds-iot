@@ -2,7 +2,7 @@
 
 Backend do projeto acadêmico SENAI para identificação de plantas, acompanhamento do crescimento e irrigação local com ESP32.
 
-O código da API está em `backend/`. A pasta `frontend/` está reservada para as telas. Execute todos os comandos npm deste documento dentro de `backend/`:
+O código da API está em `backend/`. A interface React com JavaScript está em `frontend/`; consulte o [guia do frontend](frontend/README.md) para iniciar as telas. Execute os comandos npm deste documento dentro de `backend/`:
 
 ```powershell
 cd "C:\Users\mateu\OneDrive\Documentos\ChatGPT\Projeto Senai\backend"
