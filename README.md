@@ -58,6 +58,8 @@ A aplicação valida as variáveis, a conexão e a presença das tabelas na inic
 
 ## Teste manual com PowerShell
 
+Para enviar todas as rotas uma por vez, consulte o [guia de testes do backend](docs/Guia_de_testes_do_backend.docx) e importe a [coleção de requisições](docs/horta-backend.postman_collection.json) no Postman ou no Insomnia.
+
 Com a API em execução:
 
 ```powershell
