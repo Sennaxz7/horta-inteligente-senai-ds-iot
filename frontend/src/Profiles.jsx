@@ -3,7 +3,7 @@ import { Copy, Droplet, Plus } from 'lucide-react';
 import { query } from './api';
 import { useResource, useSession } from './session';
 import { SpeciesPicker } from './Plants';
-import { Badge, Empty, Feedback, form, Header, Pagination, Panel, percent, PhaseSelect, Resource, useAction } from './ui';
+import { Badge, Empty, Feedback, form, Header, label, Pagination, Panel, percent, PhaseSelect, Resource, useAction } from './ui';
 
 const numeric = [
   ['umidadeMinima', 'Umidade mínima (%)', 0, 100, 'any'],
@@ -21,11 +21,16 @@ function ProfileForm({ profile, onClose, onSave }) {
       const body = form(event);
       numeric.forEach(([key]) => { body[key] = Number(body[key]); });
       body.observacao = body.observacao.trim() || null;
+      body.escalaUmidade = body.escalaUmidade || null;
       action.run(() => request('/perfis-irrigacao' + (profile ? '/' + profile.id : ''), { method: profile ? 'PATCH' : 'POST', body }));
     }}>
       <label>Nome do perfil<input name="nome" defaultValue={profile?.nome || ''} maxLength={120} required /></label>
       <SpeciesPicker value={profile?.especieId} required allowCreate />
       <label>Fase<PhaseSelect name="fase" value={profile?.fase} /></label>
+      <label>Escala da umidade<select name="escalaUmidade" defaultValue={profile?.escalaUmidade || ''}>
+        <option value="">Sem escala informada</option>
+        {['GRAVIMETRICA_BANDEJA', 'CAPACIDADE_RETENCAO', 'VOLUMETRICA'].map(scale => <option key={scale} value={scale}>{label(scale)}</option>)}
+      </select></label>
       <div className="form-row">{numeric.map(([key, title, min, max, step]) => <label key={key}>{title}<input name={key} type="number" min={min} max={max} step={step} defaultValue={profile?.[key]} required /></label>)}</div>
       <label>Fonte<textarea name="fonte" defaultValue={profile?.fonte || ''} rows="2" maxLength={4000} required /></label>
       <label>Observação<textarea name="observacao" defaultValue={profile?.observacao || ''} rows="2" maxLength={4000} /></label>
@@ -37,24 +42,42 @@ function ProfileForm({ profile, onClose, onSave }) {
 export default function Profiles() {
   const { request } = useSession();
   const [edit, setEdit] = useState(null);
+  const [copying, setCopying] = useState(null);
   const [filter, setFilter] = useState('');
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
   const resource = useResource(query('/perfis-irrigacao', { tipo: filter, arquivados: archived, pagina: page, limite: 12 }));
   const action = useAction(resource.refresh);
   return <>
-    <Header eyebrow="Irrigação" title="Perfis de irrigação" action={<button className="button primary" onClick={() => setEdit({ new: true })}><Plus size={18} /> Novo perfil</button>}>Organize referências e parâmetros por espécie e fase de crescimento.</Header>
+    <Header eyebrow="Irrigação" title="Perfis de irrigação" action={<button className="button primary" onClick={() => setEdit({ new: true })}><Plus size={18} /> Novo perfil</button>}>Consulte os padrões de Hortaliças por fase ou cadastre um perfil pessoal por espécie.</Header>
     {edit && <ProfileForm key={edit.id || 'new'} profile={edit.new ? null : edit} onClose={() => setEdit(null)} onSave={() => { setEdit(null); setFilter('PESSOAL'); setArchived(false); setPage(1); resource.refresh(); }} />}
+    {copying && <Panel title={'Copiar ' + copying.nome} icon={Copy} action={<button className="button secondary small" onClick={() => setCopying(null)}>Fechar</button>}>
+      <form className="form-stack panel-form" onSubmit={event => {
+        event.preventDefault();
+        const { especieId } = form(event);
+        action.run(() => request('/perfis-irrigacao/' + copying.id + '/copia', { method: 'POST', body: { especieId } }), 'Cópia salva como perfil pessoal.')
+          .then(result => {
+            if (result) { setCopying(null); setEdit(result.data.perfil); }
+          });
+      }}>
+        <SpeciesPicker required allowCreate />
+        <button className="button primary fit" disabled={action.busy}>Criar cópia pessoal</button>
+      </form>
+    </Panel>}
     <div className="filters"><label>Tipo<select value={filter} onChange={event => { setPage(1); setFilter(event.target.value); }}><option value="">Todos</option><option value="PESSOAL">Pessoais</option><option value="REFERENCIA">Referências</option></select></label><label>Situação<select value={String(archived)} onChange={event => { setPage(1); setArchived(event.target.value === 'true'); }}><option value="false">Ativos</option><option value="true">Arquivados</option></select></label></div>
     <Feedback action={action} />
     <Resource resource={resource}>{({ data, meta }) => <>
       {data.length ? <div className="plant-grid">{data.map(profile => <article key={profile.id} className="plant-card profile-card">
-        <div className="row wrap"><Badge value={profile.tipo} /><Badge value={profile.statusValidacao} /></div>
+        <div className="row wrap"><Badge value={profile.grupoIrrigacao ? 'PADRAO_GRUPO' : profile.tipo} /><Badge value={profile.grupoIrrigacao ? 'SIMULACAO_IRRIGACAO' : profile.statusValidacao} /></div>
         <h2>{profile.nome}</h2><p><Badge value={profile.fase} /> · versão {profile.versao}</p>
+        {profile.escalaUmidade && <p>{label(profile.escalaUmidade)}</p>}
         <dl className="data-list"><div><dt>Umidade mínima</dt><dd>{percent(profile.umidadeMinima)}</dd></div><div><dt>Umidade alvo</dt><dd>{percent(profile.umidadeAlvo)}</dd></div><div><dt>Duração máxima</dt><dd>{profile.duracaoMaximaSegundos} s</dd></div><div><dt>Intervalo mínimo</dt><dd>{profile.intervaloMinimoSegundos} s</dd></div></dl>
         <small className="muted">Fonte: {profile.fonte}</small>
         {!profile.arquivadoEm && <div className="row wrap profile-actions">{profile.tipo === 'REFERENCIA'
-          ? <button className="button secondary small" disabled={action.busy} onClick={() => action.run(() => request('/perfis-irrigacao/' + profile.id + '/copia', { method: 'POST', body: {} }), 'Cópia salva como perfil pessoal.')}><Copy size={15} /> Copiar</button>
+          ? <button className="button secondary small" disabled={action.busy} onClick={() => {
+            if (profile.grupoIrrigacao) setCopying(profile);
+            else action.run(() => request('/perfis-irrigacao/' + profile.id + '/copia', { method: 'POST', body: {} }), 'Cópia salva como perfil pessoal.');
+          }}><Copy size={15} /> Copiar</button>
           : <><button className="button secondary small" onClick={() => setEdit(profile)}>Editar</button>
             {profile.statusValidacao !== 'VALIDADO' && <button className="button secondary small" disabled={action.busy} onClick={() => {
               if (window.confirm('Confirma que verificou a fonte, os parâmetros e as condições de uso deste perfil?')) action.run(() => request('/perfis-irrigacao/' + profile.id, { method: 'PATCH', body: { statusValidacao: 'VALIDADO' } }), 'Perfil validado.');

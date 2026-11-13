@@ -9,7 +9,7 @@ function Metric({ title, value, detail, icon: Icon, tone }) {
 
 export default function Dashboard() {
   const { usuario } = useSession();
-  const resource = useResource('/dashboard?limite=8');
+  const resource = useResource('/dashboard?limite=8', 5000);
   return <>
     <Header eyebrow="Visão geral" title="Dashboard" action={<button className="button secondary" onClick={resource.refresh} disabled={resource.loading}><RefreshCw size={16} /> Atualizar</button>}>Acompanhe suas plantas, leituras e irrigações em um só lugar.</Header>
     <section className="garden-banner">
@@ -27,14 +27,14 @@ export default function Dashboard() {
       <div className="dashboard-grid">
         <Panel title="Últimas leituras" icon={Gauge} action={<Link className="text-link" to="/plantas">Ver plantas <ArrowRight size={15} /></Link>}>
           {data.ultimasLeituras.length ? <div className="table-wrap"><table><thead><tr><th>Planta</th><th>Umidade</th><th>Reservatório</th><th>Medição</th></tr></thead><tbody>
-            {data.ultimasLeituras.map(row => <tr key={row.id}><td><Link to={'/plantas/' + row.plantaId}>{row.plantaNome}</Link>{row.simulado && <small>Simulado</small>}</td><td>{percent(row.umidadeSoloPercentual)}</td><td>{percent(row.nivelAguaPercentual)}</td><td>{date(row.medidoEm)}</td></tr>)}
+            {data.ultimasLeituras.map(row => <tr key={row.id}><td><Link to={'/plantas/' + row.plantaId}>{row.plantaNome}</Link>{row.simulado && <small>Simulado</small>}</td><td>{percent(row.umidadeSoloPercentual)}{row.escalaUmidade && <small>{label(row.escalaUmidade)}</small>}</td><td>{percent(row.nivelAguaPercentual)}</td><td>{date(row.medidoEm)}</td></tr>)}
           </tbody></table></div> : <Empty title="Nenhuma leitura recebida" icon={Gauge}>Vincule uma planta a uma zona para acompanhar as medições.</Empty>}
         </Panel>
         <Panel title="Plantas por fase" icon={Sprout}>
           {data.plantas.ativas ? <div className="phase-bars">{Object.entries(data.plantas.ativasPorFase).map(([phase, count]) => <div key={phase}><p><span>{label(phase)}</span><strong>{count}</strong></p><progress value={count} max={data.plantas.ativas} aria-label={label(phase)} /></div>)}</div> : <Empty title="Sem plantas ativas">O resumo será preenchido quando você cadastrar uma planta.</Empty>}
         </Panel>
         <Panel title="Irrigações recentes" icon={Droplet}>
-          {data.irrigacoesRecentes.length ? <ul className="records">{data.irrigacoesRecentes.map(row => <li key={row.id}><div><Link to={'/plantas/' + row.plantaId + '?aba=historico'}>{row.plantaNome}</Link><small>{date(row.data)}{row.simulado ? ' · Simulada' : ''}{row.perfilVersao ? ' · Perfil v' + row.perfilVersao : ''}</small></div><Badge value={row.resultado} /></li>)}</ul> : <Empty title="Nenhuma irrigação registrada" icon={Droplet}>As execuções reportadas pelo dispositivo ou simulador aparecem aqui.</Empty>}
+          {data.irrigacoesRecentes.length ? <ul className="records">{data.irrigacoesRecentes.map(row => <li key={row.id}><div><Link to={'/plantas/' + row.plantaId + '?aba=historico'}>{row.plantaNome}</Link><small>{[date(row.data), row.simulado && 'Simulada', row.perfilNome, row.perfilVersao && 'v' + row.perfilVersao, row.duracaoSegundos != null && row.duracaoSegundos + ' s'].filter(Boolean).join(' · ')}</small></div><Badge value={row.resultado} /></li>)}</ul> : <Empty title="Nenhuma irrigação registrada" icon={Droplet}>As execuções reportadas pelo dispositivo ou simulador aparecem aqui.</Empty>}
         </Panel>
         <Panel title="Dispositivos" icon={Radio} action={<Link className="text-link" to="/dispositivos">Gerenciar <ArrowRight size={15} /></Link>}>
           {data.dispositivos.itens.length ? <ul className="records">{data.dispositivos.itens.map(row => <li key={row.id}><div><Link to={'/dispositivos/' + row.id}>{row.nome}</Link><small>Última mensagem: {date(row.ultimaMensagemEm)}</small></div><Badge value={row.estado} /></li>)}</ul> : <Empty title="Sem dispositivos cadastrados" icon={Radio}>Cadastre um simulador ou dispositivo para acompanhar suas zonas.</Empty>}

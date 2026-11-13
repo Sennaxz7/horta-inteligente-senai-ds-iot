@@ -52,7 +52,7 @@ export function SessionProvider({ children }) {
 
 export function useSession() { return useContext(Session); }
 
-export function useResource(path) {
+export function useResource(path, refreshMs = 0) {
   const { request } = useSession();
   const [state, setState] = useState({ path: null, data: null, error: null, loading: false });
   const [revision, setRevision] = useState(0);
@@ -66,6 +66,11 @@ export function useResource(path) {
       .catch(error => { if (!controller.signal.aborted) setState({ path, data: null, error, loading: false }); });
     return () => controller.abort();
   }, [path, request, revision]);
+  useEffect(() => {
+    if (!refreshMs || !path || state.path !== path || state.loading || state.error) return;
+    const timer = setTimeout(refresh, refreshMs);
+    return () => clearTimeout(timer);
+  }, [path, refresh, refreshMs, state]);
   return useMemo(() => ({
     ...(path && state.path === path ? state : { data: null, loading: Boolean(path), error: null }),
     refresh,

@@ -38,6 +38,9 @@ function PlantFields({ plant }) {
     <label>Nome da planta<input name="nome" defaultValue={plant?.nome} placeholder="Ex.: Manjericão da varanda" maxLength={120} required /></label>
     <div className="form-row"><label>Apelido <small>opcional</small><input name="apelido" defaultValue={plant?.apelido || ''} placeholder="Ex.: Vaso 1" maxLength={120} /></label>
       <label>Data de plantio<input name="dataPlantio" type="date" defaultValue={plant?.dataPlantio || ''} /></label></div>
+    <label>Grupo de irrigação<select name="grupoIrrigacao" defaultValue={plant?.grupoIrrigacao || ''}>
+      <option value="">Sem grupo</option><option value="HORTALICAS">Hortaliças</option>
+    </select></label>
   </>;
 }
 
@@ -57,7 +60,8 @@ export function Plants() {
         event.preventDefault();
         const values = form(event);
         create.run(() => request('/plantas', { method: 'POST', body: {
-          ...values, nome: values.nome.trim(), apelido: values.apelido.trim() || null, dataPlantio: values.dataPlantio || null, especieId: values.especieId || null,
+          ...values, nome: values.nome.trim(), apelido: values.apelido.trim() || null, dataPlantio: values.dataPlantio || null,
+          especieId: values.especieId || null, grupoIrrigacao: values.grupoIrrigacao || null,
         } }));
       }}><PlantFields /><label>Fase atual<PhaseSelect /></label><SpeciesPicker allowCreate />
         <Feedback action={create} /><button className="button primary fit" disabled={create.busy}>Salvar planta</button>
@@ -71,7 +75,7 @@ export function Plants() {
     </form>
     <Resource resource={resource}>{({ data, meta }) => <>
       {data.length ? <div className="plant-grid">{data.map(plant => <Link key={plant.id} to={'/plantas/' + plant.id} className="plant-card"><div className="plant-card-top"><PlantMark /><Badge value={plant.faseAtual} /></div><h2>{plant.nome}</h2>
-        <p>{plant.especie?.nomeCientifico || plant.apelido || 'Espécie não identificada'}</p><footer><span>{plant.dataPlantio ? 'Plantio: ' + day(plant.dataPlantio) : label(plant.statusIdentificacao)}</span><ArrowRight size={18} /></footer></Link>)}</div> : <Panel title="Plantas"><Empty title="Nenhuma planta encontrada">Cadastre uma planta ou altere os filtros para ampliar a busca.</Empty></Panel>}
+        <p>{plant.especie?.nomeCientifico || plant.apelido || 'Espécie não identificada'}{plant.grupoIrrigacao && ' · ' + label(plant.grupoIrrigacao)}</p><footer><span>{plant.dataPlantio ? 'Plantio: ' + day(plant.dataPlantio) : label(plant.statusIdentificacao)}</span><ArrowRight size={18} /></footer></Link>)}</div> : <Panel title="Plantas"><Empty title="Nenhuma planta encontrada">Cadastre uma planta ou altere os filtros para ampliar a busca.</Empty></Panel>}
       <Pagination meta={meta} page={page} setPage={setPage} />
     </>}</Resource>
   </>;
@@ -104,7 +108,10 @@ function PlantOverview({ plant, refresh }) {
       <form className="panel-form form-stack" onSubmit={event => {
         event.preventDefault();
         const values = form(event);
-        action.run(() => request(route, { method: 'PATCH', body: { nome: values.nome.trim(), apelido: values.apelido.trim() || null, dataPlantio: values.dataPlantio || null } }), 'Dados salvos.');
+        action.run(() => request(route, { method: 'PATCH', body: {
+          nome: values.nome.trim(), apelido: values.apelido.trim() || null, dataPlantio: values.dataPlantio || null,
+          grupoIrrigacao: values.grupoIrrigacao || null,
+        } }), 'Dados salvos.');
       }}><fieldset disabled={!!plant.arquivadaEm || action.busy}><PlantFields plant={plant} />{!plant.arquivadaEm && <button className="button primary fit">Salvar dados</button>}</fieldset></form>
       <div className="panel-form"><Feedback action={action} /></div>
     </Panel>
@@ -197,16 +204,21 @@ function PlantIrrigation({ plant }) {
   return <div className="detail-grid">
     <Panel title="Perfil de irrigação" icon={Droplet}>
       <div className="panel-form form-stack">
-        <Resource resource={binding}>{({ data }) => data.perfil ? <>
-          <strong>{data.perfil.nome} · versão {data.vinculo?.versao}</strong>
-          {data.necessitaRevisao && <Alert error={'Revise o vínculo: ' + data.motivos.map(label).join(', ')} />}
-        </> : <p className="muted">Nenhum perfil associado.</p>}</Resource>
-        {!plant.especieId && <p className="muted">Confirme a espécie para ver os perfis compatíveis.</p>}
+        <Resource resource={binding}>{({ data }) => <>
+          {data.perfilAplicado ? <div className="config-summary">
+            <div className="row wrap"><strong>{data.perfilAplicado.nome}</strong><Badge value={data.origem} /></div>
+            <p>Mínima {percent(data.perfilAplicado.umidadeMinima)} · Alvo {percent(data.perfilAplicado.umidadeAlvo)}</p>
+            {data.perfilAplicado.escalaUmidade && <small>{label(data.perfilAplicado.escalaUmidade)} · </small>}
+            <small>Versão {data.perfilAplicado.versao} · Aplicado ao dispositivo na próxima sincronização.</small>
+          </div> : <p className="muted">Sem perfil aplicável. A zona fica em monitoramento.</p>}
+          {data.necessitaRevisao && <Alert error={'Revise o perfil associado: ' + data.motivos.map(label).join(', ')} />}
+        </>}</Resource>
+        {!plant.especieId && !plant.arquivadaEm && <p className="muted">Confirme a espécie para associar um perfil manualmente.</p>}
         <Resource resource={profiles}>{({ data }) => data.length ? <form className="form-stack" onSubmit={event => {
           event.preventDefault(); const { perfilIrrigacaoId } = form(event);
           profileAction.run(() => request(path + '/perfil-irrigacao', { method: 'PUT', body: { perfilIrrigacaoId } }), 'Perfil associado.');
         }}><label>Perfil compatível<select name="perfilIrrigacaoId">{data.map(item => <option value={item.id} key={item.id}>{item.nome} · v{item.versao}</option>)}</select></label><button className="button primary fit" disabled={profileAction.busy}>Associar perfil</button></form> : <p className="muted">Nenhum perfil validado para esta espécie e fase.</p>}</Resource>
-        {!plant.arquivadaEm && binding.data?.data.perfil && <button className="button secondary fit" disabled={profileAction.busy} onClick={() => profileAction.run(() => request(path + '/perfil-irrigacao', { method: 'PUT', body: { perfilIrrigacaoId: null } }), 'Perfil desvinculado.')}>Desvincular perfil</button>}
+        {!plant.arquivadaEm && binding.data?.data.vinculo && <button className="button secondary fit" disabled={profileAction.busy} onClick={() => profileAction.run(() => request(path + '/perfil-irrigacao', { method: 'PUT', body: { perfilIrrigacaoId: null } }), 'Perfil desvinculado.')}>Desvincular perfil</button>}
         <Feedback action={profileAction} /><Link className="text-link" to="/perfis-irrigacao">Ver perfis de irrigação <ArrowRight size={15} /></Link>
       </div>
     </Panel>
@@ -229,13 +241,13 @@ function PlantIrrigation({ plant }) {
 function Timeline({ id }) {
   const [type, setType] = useState('');
   const [page, setPage] = useState(1);
-  const resource = useResource(query('/plantas/' + id + '/historico', { tipo: type, pagina: page }));
+  const resource = useResource(query('/plantas/' + id + '/historico', { tipo: type, pagina: page }), page === 1 ? 5000 : 0);
   return <Panel title="Linha do tempo" icon={History} action={<select aria-label="Tipo de evento" value={type} onChange={event => { setPage(1); setType(event.target.value); }}><option value="">Todos os registros</option>{['CRESCIMENTO','IDENTIFICACAO','LEITURA','IRRIGACAO'].map(key => <option key={key} value={key}>{label(key)}</option>)}</select>}>
     <Resource resource={resource}>{({ data, meta }) => <>{data.length ? <ul className="records timeline">{data.map(item => {
       const d = item.dados;
       const summary = item.tipo === 'CRESCIMENTO' ? [label(d.fase), d.alturaCm != null && number(d.alturaCm) + ' cm', d.observacao] :
-        item.tipo === 'IDENTIFICACAO' ? [label(d.status)] : item.tipo === 'LEITURA' ? ['Solo: ' + percent(d.umidadeSoloPercentual), 'Reservatório: ' + percent(d.nivelAguaPercentual), d.simulado && 'Simulada'] :
-        [label(d.resultado), d.duracaoSegundos != null && d.duracaoSegundos + ' s', d.simulado && 'Simulada', d.perfilVersao && 'Perfil v' + d.perfilVersao, d.motivoFalha];
+        item.tipo === 'IDENTIFICACAO' ? [label(d.status)] : item.tipo === 'LEITURA' ? ['Solo: ' + percent(d.umidadeSoloPercentual), d.escalaUmidade && label(d.escalaUmidade), 'Reservatório: ' + percent(d.nivelAguaPercentual), d.simulado && 'Simulada'] :
+        [label(d.resultado), d.duracaoSegundos != null && d.duracaoSegundos + ' s', d.simulado && 'Simulada', d.perfilNome, d.perfilVersao && 'Perfil v' + d.perfilVersao, d.motivoFalha];
       return <li key={item.tipo + item.id}><div><Badge value={item.tipo} /><p>{summary.filter(Boolean).join(' · ')}</p></div><small>{date(item.data)}</small></li>;
     })}</ul> : <Empty title="Nenhum registro neste filtro" icon={History} />}<Pagination meta={meta} page={page} setPage={setPage} /></>}</Resource>
   </Panel>;

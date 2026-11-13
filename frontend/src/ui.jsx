@@ -10,12 +10,19 @@ const labels = {
   ONLINE: 'Online informado', OFFLINE: 'Offline informado', SEM_STATUS: 'Sem status', CRESCIMENTO: 'Crescimento',
   IDENTIFICACAO: 'Identificação', LEITURA: 'Leitura', IRRIGACAO: 'Irrigação', GERAL: 'Geral', MONITORAMENTO: 'Monitoramento',
   SIMULACAO_IRRIGACAO: 'Irrigação simulada',
+  HORTALICAS: 'Hortaliças', PADRAO_GRUPO: 'Padrão do grupo', ASSOCIADO: 'Associado manualmente',
+  GRAVIMETRICA_BANDEJA: 'Escala gravimétrica da bandeja', CAPACIDADE_RETENCAO: 'Capacidade de retenção do substrato',
+  VOLUMETRICA: 'Umidade volumétrica',
+  SEM_CALIBRACAO_RESERVATORIO: 'Zona sem calibração do reservatório',
+  SEM_PLANTA_ATIVA: 'Zona sem planta ativa', SEM_PERFIL_VINCULADO: 'Planta sem perfil aplicável',
+  PERFIL_REQUER_REVISAO: 'Perfil associado requer revisão',
 };
 export const label = value => phases[value] || labels[value] || value?.replaceAll('_', ' ') || '—';
 export const date = value => value ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Bahia' }).format(new Date(value)) : '—';
 export const day = value => value ? value.slice(0, 10).split('-').reverse().join('/') : '—';
 export const number = value => value == null ? '—' : new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(value);
-export const percent = value => value == null ? '—' : number(value) + '%';
+const percentFormat = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 });
+export const percent = value => value == null ? '—' : percentFormat.format(value) + '%';
 export const form = event => Object.fromEntries(new FormData(event.currentTarget));
 
 export function Brand() {

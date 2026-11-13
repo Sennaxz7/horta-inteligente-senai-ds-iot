@@ -110,7 +110,8 @@ function Configuration({ device }) {
         } }), 'Solicitação enviada. Acompanhe a confirmação abaixo.');
       }}><label>Modo<select name="modo"><option value="MONITORAMENTO">Monitoramento</option>{device.simulado && <option value="SIMULACAO_IRRIGACAO">Irrigação simulada</option>}</select></label>
         <label>Intervalo das leituras (s)<input name="intervalo" type="number" min="2" max="86400" defaultValue="5" required /></label><button className="button primary" disabled={action.busy}>Sincronizar</button></form>
-        <Feedback action={action} /><Resource resource={config}>{({ data }) => data ? <div className="config-summary"><div className="row wrap"><strong>Última configuração</strong><Badge value={data.status} /></div><p>{label(data.dados?.modo || 'MONITORAMENTO')}{data.dados?.irrigacao ? ' · Perfil v' + data.dados.irrigacao.perfilVersao : ''}</p>
+        <Feedback action={action} /><Resource resource={config}>{({ data }) => data ? <div className="config-summary"><div className="row wrap"><strong>Última configuração</strong><Badge value={data.status} /></div><p>{label(data.dados?.modo || 'MONITORAMENTO')}{data.dados?.irrigacao ? ' · ' + (data.dados.irrigacao.perfilNome || 'Perfil') + ' v' + data.dados.irrigacao.perfilVersao : ''}</p>
+          {data.dados?.irrigacao && <p>Mínima {percent(data.dados.irrigacao.umidadeMinima)} · Alvo {percent(data.dados.irrigacao.umidadeAlvo)}{data.dados.irrigacao.escalaUmidade && ' · ' + label(data.dados.irrigacao.escalaUmidade)}</p>}
           {data.dados?.motivoMonitoramento && <Alert error={label(data.dados.motivoMonitoramento)} />}
           <small>Enviada: {date(data.createdAt)} · Confirmada: {date(data.confirmadaEm)}</small></div> : <Empty title="Nenhuma configuração enviada" />}</Resource>
         <button className="button secondary fit" onClick={config.refresh}><RefreshCw size={16} /> Atualizar confirmação</button>
