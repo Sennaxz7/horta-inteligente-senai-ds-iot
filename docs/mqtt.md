@@ -77,7 +77,7 @@ Os textos UUID acima são marcadores; envie UUIDs reais. Data ISO com fuso obrig
 
 Campos específicos adicionados ao envelope:
 
-* `sensores`: `zonaId` UUID, `umidadeSoloPercentual` número 0–100 ou null, `distanciaAguaCm` número positivo até 10000 ou null. Zona deve pertencer ao dispositivo. Null representa ausência de leitura; não use zero para falha de sensor.
+* `sensores`: `zonaId` UUID, `umidadeSoloPercentual` número 0–100 ou null, `distanciaAguaCm` número positivo até 10000 ou null. Em simulação, `configuracaoId` pode apontar para uma configuração confirmada da zona. O backend registra a escala da umidade a partir desse perfil. Zona deve pertencer ao dispositivo. Null representa ausência de leitura; não use zero para falha de sensor.
 * `status`: `estado` ONLINE ou OFFLINE; sem zona. Use Last Will OFFLINE. Timestamp do Last Will pode representar a criação da conexão, não o momento exato da queda; `recebidoEm` é o instante de observação pelo backend. Último status não garante conectividade atual: compare também idade da última leitura.
 * `eventos`: `zonaId`, `tipo` IRRIGACAO_INICIADA, IRRIGACAO_FINALIZADA, FALHA_SENSOR ou RESERVATORIO_BAIXO; `duracaoSegundos` opcional, 0–86400. Novos eventos de irrigação devem repetir `irrigacaoId` no início e fim; finalização aceita `resultado` CONCLUIDA/FALHA e `motivoFalha` opcional quando FALHA. `configuracaoId` é opcional para referenciar uma configuração do mesmo dispositivo/zona. Os campos novos exigem `irrigacaoId`; eventos antigos sem esse ID continuam somente no histórico geral. Veja [contrato completo](irrigacao.md). São registros informativos e não acionam equipamento.
 * `config/ack`: `zonaId`, `configuracaoId` UUID e `aplicada` booleano. ACK de outro dispositivo/zona não é aceito.
@@ -102,7 +102,7 @@ A calibração deve coincidir com a da zona (ou ambas null). O backend acrescent
 
 ### Demonstração de irrigação com perfil
 
-1. Cadastre um dispositivo com `simulado: true`, vincule uma planta ativa a uma zona com calibração do reservatório e associe à planta um perfil validado compatível com a espécie e a fase. Em um ensaio fictício, uma mínima de 50 e um alvo de 65 permitem disparar o exemplo com as leituras simuladas de 37 a 45. Esses números são dados de teste, não parâmetros de cultivo.
+1. Cadastre um dispositivo com `simulado: true` e vincule uma planta ativa a uma zona com calibração do reservatório. Selecione Hortaliças no grupo de irrigação da planta para usar o padrão da fase atual, ou associe um perfil validado por espécie. Em um ensaio fictício, com mínima de 50 e alvo de 65, o simulador gera leituras acima e abaixo de 50 para demonstrar o disparo.
 2. Inicie o simulador conforme o guia acima, com `$env:MQTT_SIM_IRRIGACOES = 'true'` no terminal antes de `npm.cmd run mqtt:simulate`.
 3. Com Bearer JWT, envie `POST /api/v1/dispositivos/:id/zonas/:zonaId/sincronizacao` com:
 
@@ -117,7 +117,7 @@ A calibração deve coincidir com a da zona (ou ambas null). O backend acrescent
 
 Use as distâncias cadastradas na zona. No modo simulado o backend guarda a planta, o perfil, a versão e seus parâmetros em `dados.irrigacao` e publica o mesmo objeto como `irrigacao` no MQTT. Dispositivo físico recebe `409` se a simulação for solicitada. Se faltar calibração, planta ativa, vínculo ou perfil compatível e validado, o backend envia `modo: MONITORAMENTO`, sem parâmetros de irrigação, e expõe `dados.motivoMonitoramento` na API. O modo omitido mantém o contrato anterior de monitoramento.
 
-4. Consulte `GET /api/v1/dispositivos/:id/zonas/:zonaId/configuracao` até o ID enviado ficar `CONFIRMADA`. O simulador valida a configuração, confirma o ID e, com a opção de irrigação ativa, gera uma execução fictícia quando a umidade simulada fica abaixo da mínima e o intervalo foi respeitado. A execução dura até dois segundos, limitada pela duração máxima do perfil. Não simula a dinâmica do solo nem aciona saídas físicas.
+4. Consulte `GET /api/v1/dispositivos/:id/zonas/:zonaId/configuracao` até o ID enviado ficar `CONFIRMADA`. O simulador gera uma leitura inicial acima da mínima, depois uma abaixo da mínima. Com a opção de irrigação ativa, inicia um ciclo se o intervalo desde o fim da rega anterior tiver passado. A execução dura até dois segundos, limitada pela duração máxima do perfil. A leitura seguinte representa o alvo da configuração. As leituras são roteirizadas para a demonstração.
 5. Consulte `GET /api/v1/plantas/:id/irrigacoes` para conferir `configuracaoId` e `configuracaoSnapshot.irrigacao`. O histórico unificado e o dashboard mostram o ID e a versão do perfil usados. Editar o perfil não altera a cópia registrada. Depois de editar, sincronize novamente: enquanto a revisão do vínculo estiver pendente, o dispositivo receberá monitoramento. A edição não envia uma configuração automaticamente.
 
 ## API — JWT Bearer obrigatório

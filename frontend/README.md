@@ -36,6 +36,20 @@ O token Bearer fica na sessão da aba. A API valida a sessão e a propriedade do
 
 ## Demonstração com o simulador
 
+Para a apresentação de Hortaliças, aplique as migrations e crie uma conta na tela **Cadastro**. A API e o simulador devem usar o mesmo broker e prefixo. Para usar o Mosquitto local na porta 1883, configure `MQTT_URL=mqtt://127.0.0.1:1883` no `backend/.env`. Também é possível usar o HiveMQ público em `mqtt://broker.hivemq.com:1883` para os dados fictícios. Nos dois casos, configure `MQTT_ENABLED=true`, `MQTT_TEST_MODE=true` e escolha um `MQTT_PREFIX` próprio para a demonstração.
+
+Com a API e o frontend abertos, execute na pasta `backend`:
+
+```powershell
+.\scripts\demo-hortalicas.ps1
+```
+
+Entre no script com a conta da apresentação. Ele prepara **Alface da bandeja**, **Alface do vaso**, **Rúcula do vaso**, **Couve do vaso** e **Repolho do vaso**. Os simuladores geram leituras e regas para **Alface do vaso**, **Couve do vaso** e **Repolho do vaso**. Repetir o comando com a mesma conta reutiliza os cadastros que já pertencem a ela. A tela **Perfis de irrigação** mostra os cinco padrões de Hortaliças instalados pela migration.
+
+Abra **Dashboard** ou a aba **Histórico** da alface do vaso, da couve ou do repolho para acompanhar as leituras e regas simuladas. O Dashboard e a primeira página do Histórico atualizam automaticamente. Para demonstrar a troca de perfil, registre o crescimento da alface da bandeja e confira o novo padrão na aba **Irrigação**. Pressione Ctrl+C no terminal do script para encerrar os simuladores.
+
+### Configuração manual
+
 Crie uma planta com espécie e fase, crie e valide um perfil compatível e cadastre um dispositivo simulado. No dispositivo, crie uma zona calibrada. Na aba **Irrigação** da planta, vincule a zona e o perfil. Inicie o [simulador MQTT](../docs/mqtt.md#demonstração-de-irrigação-com-perfil) com os IDs do dispositivo e da zona. Na aba **Configuração** do dispositivo, selecione **Irrigação simulada** e sincronize. A confirmação é consultada enquanto estiver pendente. Acompanhe a execução no histórico da planta e no dashboard. A automação física permanece desabilitada.
 
 ## Build

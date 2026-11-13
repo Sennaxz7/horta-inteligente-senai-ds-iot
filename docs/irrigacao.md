@@ -6,7 +6,17 @@ Esta etapa oferece perfis pessoais e um catálogo compartilhado de referência, 
 
 Na pasta `backend`, execute `npm.cmd run db:migrate` e reinicie a API. A migration `20261103000100-create-irrigacao.js` acrescenta três tabelas sem converter ou excluir mensagens antigas: `perfis_irrigacao`, `plantas_perfis_irrigacao` e `registros_irrigacao`.
 
-O catálogo de referência começa vazio. Não foram inseridos parâmetros agronômicos sem fonte. Os exemplos numéricos abaixo são fictícios para demonstrar o contrato; não são recomendações para cultivo ou hardware.
+A migration de Hortaliças cadastra cinco referências de demonstração, uma por fase. Os perfis vêm com 2 segundos de duração máxima e 15 segundos de espera após o fim da rega.
+
+| Fase | Mínima | Alvo | Escala |
+| --- | ---: | ---: | --- |
+| Semente | 60% | 70% | Escala gravimétrica da bandeja |
+| Germinação | 60% | 70% | Escala gravimétrica da bandeja |
+| Muda | 70% | 80% | Percentual da capacidade de retenção do substrato |
+| Vegetativa | 20,51% | 23,41% | Umidade volumétrica |
+| Adulta | 20,51% | 23,41% | Umidade volumétrica |
+
+Os pares foram adaptados para o simulador com alface como referência. Semente e Germinação usam a faixa descrita para a emergência. Muda usa dois tratamentos do ensaio em bandeja. Os valores volumétricos usam a curva do ensaio em vasos de Juazeiro, com 15 kPa como limiar de teste e 10 kPa como referência para o alvo. [Estudo em bandeja](https://doi.org/10.3390/horticulturae12080906) · [Curva do ensaio em vaso](https://doi.org/10.1590/S0102-05362011000200018) · [Referência de 15 kPa](https://www.scielo.br/j/eagri/a/NFGdypYMJKtZDsnjZdQz3tn/?lang=pt)
 
 ## Rotas HTTP
 
@@ -19,7 +29,7 @@ Prefixo `/api/v1`, JWT Bearer obrigatório. Entradas desconhecidas são rejeitad
 | GET | `/perfis-irrigacao/:id` | 200 | `data.perfil` |
 | PATCH | `/perfis-irrigacao/:id` | 200 | `data.perfil` atualizado |
 | DELETE | `/perfis-irrigacao/:id` | 204 | Arquivamento idempotente do perfil pessoal |
-| POST | `/perfis-irrigacao/:id/copia` | 201 | Cópia pessoal em rascunho; enviar `{}` |
+| POST | `/perfis-irrigacao/:id/copia` | 201 | Cópia pessoal em rascunho. Envie `{}` para referência por espécie ou `{especieId}` para padrão de grupo. |
 | GET | `/plantas/:id/perfil-irrigacao` | 200 | Perfil, vínculo, snapshot e necessidade de revisão |
 | PUT | `/plantas/:id/perfil-irrigacao` | 200 | Associa perfil ou remove vínculo |
 | GET | `/plantas/:id/irrigacoes` | 200 | Histórico paginado de execuções |
@@ -60,7 +70,7 @@ PATCH /api/v1/perfis-irrigacao/UUID_DO_PERFIL
 
 Isso registra a confirmação do usuário e sua data; não é certificação agronômica automática. A API verifica somente estrutura, limites e consistência. `RASCUNHO` remove a confirmação. Qualquer alteração efetiva dos dados editáveis incrementa `versao`, volta a rascunho e limpa `validadoEm`. É necessário salvar a alteração e validar em outra requisição; edição e validação simultâneas retornam 409. Alterações parciais são conferidas contra os demais valores existentes (ex.: mudar apenas a mínima não pode superar a alvo atual).
 
-Referências são somente leitura pela API. Para personalizar, envie `{}` ao POST `/perfis-irrigacao/:id/copia`. A cópia mantém os parâmetros e a fonte, recebe outro UUID, pertence ao usuário e começa na versão 1 em rascunho. Editar a cópia não altera a referência. Perfis pessoais de terceiros retornam 404. Tentativa de editar/arquivar referência retorna 403.
+Referências são somente leitura pela API. Para personalizar uma referência por espécie, envie `{}` ao POST `/perfis-irrigacao/:id/copia`. Para copiar um padrão do grupo, informe a espécie da cópia. A cópia mantém os parâmetros e a fonte, recebe outro UUID, pertence ao usuário e começa na versão 1 em rascunho. Editar a cópia não altera a referência. Perfis pessoais de terceiros retornam 404. Tentativa de editar/arquivar referência retorna 403.
 
 ## Publicação administrativa de referências
 
@@ -72,7 +82,7 @@ Prepare um JSON com o mesmo corpo de criação, dados reais e fonte revisada. Ex
 npm.cmd run perfis:importar -- "C:\caminho\perfil-revisado.json" --validado
 ```
 
-`--validado` é a confirmação explícita do operador de que revisou os dados. O comando utiliza a conexão configurada, valida campos e catálogos, cria um perfil `REFERENCIA` sem dono, com status `VALIDADO` e data de validação. Cada execução cria um perfil novo; não é um upsert e não deve ser repetido para o mesmo cadastro por engano. Não há parâmetros padrão nem importação automática. Revisão/arquivamento de referências existentes permanece uma operação administrativa no banco; a API comum só permite leitura e cópia.
+`--validado` é a confirmação explícita do operador de que revisou os dados. O comando utiliza a conexão configurada, valida campos e catálogos, cria um perfil `REFERENCIA` por espécie, sem dono, com status `VALIDADO` e data de validação. Cada execução cria um perfil novo. Os padrões de Hortaliças são inseridos pela migration. Revisão e arquivamento de referências existentes são operações administrativas.
 
 ## Busca por planta e associação
 
@@ -80,9 +90,9 @@ npm.cmd run perfis:importar -- "C:\caminho\perfil-revisado.json" --validado
 GET /api/v1/perfis-irrigacao?plantaId=UUID_DA_PLANTA
 ```
 
-Busca referências validadas e perfis pessoais que correspondam à espécie confirmada e à fase atual da planta. Rascunhos pessoais podem aparecer para edição, mas não podem ser associados. Planta sem espécie retorna 409 `PLANT_SPECIES_REQUIRED`. A seleção é manual; a PlantNet não define os parâmetros e a API não escolhe automaticamente um perfil.
+O filtro por planta lista as opções para associação manual, compatíveis com sua espécie confirmada e fase atual. Rascunhos pessoais podem aparecer para edição, mas não podem ser associados. Nesse filtro, planta sem espécie retorna 409 `PLANT_SPECIES_REQUIRED`. Para consultar o perfil automático, use a rota de vínculo da planta, inclusive quando a espécie ainda não foi identificada.
 
-Filtros: `pagina` (padrão 1), `limite` (padrão 20, máximo 100), `especieId`, `fase`, `plantaId`, `tipo=PESSOAL|REFERENCIA`, `statusValidacao=RASCUNHO|VALIDADO` e `arquivados=true|false` (padrão false). `true` lista somente arquivados. Combinar planta com espécie/fase diferentes retorna 422.
+Filtros: `pagina` (padrão 1), `limite` (padrão 20, máximo 100), `especieId`, `fase`, `plantaId`, `grupoIrrigacao=HORTALICAS`, `tipo=PESSOAL|REFERENCIA`, `statusValidacao=RASCUNHO|VALIDADO` e `arquivados=true|false` (padrão false). `true` lista somente arquivados. Combinar planta com espécie/fase diferentes retorna 422.
 
 Associação:
 
@@ -94,7 +104,9 @@ PUT /api/v1/plantas/UUID_DA_PLANTA/perfil-irrigacao
 {"perfilIrrigacaoId":"UUID_DO_PERFIL"}
 ```
 
-Somente perfis ativos, validados, visíveis ao usuário e compatíveis com a espécie/fase podem ser associados. A planta deve estar ativa. O vínculo guarda versão e snapshot do perfil escolhido. Consultas retornam:
+Somente perfis por espécie ativos, validados e compatíveis com a espécie/fase podem ser associados manualmente. A planta deve estar ativa. O vínculo guarda versão e snapshot do perfil escolhido. Para copiar um padrão do grupo como perfil pessoal, envie `{"especieId":"UUID_DA_ESPECIE"}` na rota de cópia.
+
+A consulta retorna o vínculo manual e o `perfilAplicado`, com `origem` igual a `ASSOCIADO` ou `PADRAO_GRUPO`. Um vínculo válido tem prioridade. Sem vínculo válido, uma planta cadastrada com `grupoIrrigacao: "HORTALICAS"` usa o padrão da fase atual. A consulta e a sincronização MQTT usam a mesma regra. Consultas retornam:
 
 ```json
 {
@@ -102,7 +114,9 @@ Somente perfis ativos, validados, visíveis ao usuário e compatíveis com a esp
     "perfil": {},
     "vinculo": {},
     "necessitaRevisao": true,
-    "motivos": ["VERSAO_ALTERADA"]
+    "motivos": ["VERSAO_ALTERADA"],
+    "perfilAplicado": {},
+    "origem": "PADRAO_GRUPO"
   }
 }
 ```

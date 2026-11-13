@@ -138,7 +138,7 @@ docs/              Documentação existente, mantida no local original
 
 ## Plantas, fotos e identificação
 
-Após atualizar um projeto existente, execute `npm.cmd ci` e `npm.cmd run db:migrate`. A migration insere as cinco fases de crescimento. O catálogo de espécies começa vazio: pode ser preenchido manualmente ou pela confirmação dos candidatos da PlantNet. Nenhum parâmetro de irrigação é criado.
+Após atualizar um projeto existente, execute `npm.cmd ci` e `npm.cmd run db:migrate`. As migrations inserem as cinco fases de crescimento e os cinco perfis padrão de Hortaliças para simulação. O catálogo de espécies pode ser preenchido manualmente, pela confirmação dos candidatos da PlantNet ou pelo [roteiro de demonstração](frontend/README.md#demonstração-com-o-simulador).
 
 Todas as rotas de catálogos e plantas exigem `Authorization: Bearer TOKEN`. O dono vem do JWT; o cliente não pode enviar `usuarioId`. Acesso à planta de outro usuário retorna 403.
 
