@@ -1,6 +1,7 @@
 const { createHttpClient } = require("../helpers/http");
 const { randomUUID } = require("node:crypto");
 const { spawn } = require("node:child_process");
+const { once } = require("node:events");
 const net = require("node:net");
 const fs = require("node:fs");
 const mqtt = require("mqtt");
@@ -310,6 +311,19 @@ mqttNetworkTest("MQTT TCP real: perfil versionado recebe ACK e chega ao históri
     const execution = dashboard.irrigacoesRecentes.find(i => i.configuracaoId === config.id);
     expect(execution.perfilIrrigacaoId).toBe(profile.id);
     expect(execution.perfilVersao).toBe(1);
+    await api("patch", `/plantas/${plant.id}`, 200, { grupoIrrigacao: "HORTALICAS" });
+    await api("post", `/plantas/${plant.id}/crescimento`, 201, { fase: "VEGETATIVA" });
+    const standard = (await api("post", sync, 202, input)).body.data;
+    expect(standard.dados.irrigacao).toMatchObject({
+      origem: "PADRAO_GRUPO", perfilNome: "Hortaliças · Vegetativa", escalaUmidade: "VOLUMETRICA",
+      umidadeMinima: 20.51, umidadeAlvo: 23.41,
+    });
+    await until(async () => (await models.ConfiguracaoMqtt.findByPk(standard.id)).status === "CONFIRMADA");
+    await until(async () => {
+      const result = (await api("get", "/dashboard", 200)).body.data;
+      return result.ultimasLeituras.some(reading => reading.plantaId === plant.id &&
+        reading.escalaUmidade === "VOLUMETRICA" && reading.umidadeSoloPercentual === 20);
+    });
     const real = (await api("post", "/dispositivos", 201, { nome: "Dispositivo físico", simulado: false })).body.data;
     const realZone = (await api("post", `/dispositivos/${real.id}/zonas`, 201, { nome: "Zona física" })).body.data;
     await api("post", `/dispositivos/${real.id}/zonas/${realZone.id}/sincronizacao`, 409, { ...input, calibracaoReservatorio: null });
@@ -319,3 +333,74 @@ mqttNetworkTest("MQTT TCP real: perfil versionado recebe ACK e chega ao históri
     await service.stop(); broker.kill();
   }
 }, 30000);
+
+mqttNetworkTest("roteiro de Hortaliças prepara a conta e rega alface do vaso, couve e repolho", async () => {
+  const socket = net.createServer();
+  await new Promise(resolve => socket.listen(0, "127.0.0.1", resolve));
+  const port = socket.address().port;
+  await new Promise(resolve => socket.close(resolve));
+  const broker = spawn(binary, ["-p", String(port)], { windowsHide: true, stdio: "ignore" });
+  let demo, exit;
+  const waitFor = async predicate => {
+    for (let attempt = 0; attempt < 200; attempt++) {
+      if (await predicate()) return;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    throw new Error("A demonstração não atingiu o estado esperado.");
+  };
+  try {
+    const url = `mqtt://127.0.0.1:${port}`;
+    service.env = { ...service.env, MQTT_ENABLED: true, MQTT_URL: url };
+    service.start();
+    await waitFor(() => service.connected);
+    const email = `demo-${randomUUID()}@example.com`;
+    const credentials = { email, senha: validUser.senha };
+    await check("POST", "/api/v1/auth/register", 201, { json: { ...validUser, email } });
+    const login = await check("POST", "/api/v1/auth/login", 200, { json: credentials });
+    const demoToken = login.body.data.accessToken;
+    demo = spawn(process.execPath, ["scripts/demo-hortalicas.js"], {
+      env: { ...process.env, HORTA_DEMO_API_URL: client.baseUrl + "/api/v1",
+        MQTT_URL: url, MQTT_PREFIX: prefix, MQTT_SIM_USERNAME: "", MQTT_SIM_PASSWORD: "" },
+      stdio: ["pipe", "pipe", "pipe", "ipc"],
+    });
+    exit = once(demo, "exit");
+    let logs = "";
+    demo.stdout.on("data", chunk => { logs += chunk.toString(); });
+    demo.stderr.on("data", chunk => { logs += chunk.toString(); });
+    demo.stdin.end(Buffer.from(JSON.stringify(credentials), "utf8").toString("base64"));
+    const simulatedPlants = [
+      ["Alface do vaso", "Hortaliças · Vegetativa"],
+      ["Couve do vaso", "Hortaliças · Adulta"],
+      ["Repolho do vaso", "Hortaliças · Vegetativa"],
+    ];
+    await waitFor(async () => {
+      if (demo.exitCode !== null) throw new Error(logs);
+      const { body: { data } } = await api("get", "/dashboard", 200, undefined, demoToken);
+      return simulatedPlants.every(([plantName, profileName]) =>
+        data.irrigacoesRecentes.some(item => item.simulado && item.plantaNome === plantName &&
+          item.perfilNome === profileName &&
+          item.resultado === "CONCLUIDA" && item.duracaoSegundos === 2));
+    });
+    const { body: { data: plants } } = await api("get", "/plantas", 200, undefined, demoToken);
+    expect(plants.map(plant => plant.nome).sort()).toEqual([
+      "Alface da bandeja", "Alface do vaso", "Couve do vaso", "Repolho do vaso", "Rúcula do vaso",
+    ]);
+    for (const [name] of simulatedPlants) {
+      const plant = plants.find(item => item.nome === name);
+      await waitFor(async () => {
+        const { body: { data } } = await api("get", `/plantas/${plant.id}/historico?tipo=LEITURA`, 200, undefined, demoToken);
+        return data.some(item => item.dados.escalaUmidade === "VOLUMETRICA" && item.dados.umidadeSoloPercentual === 23.41);
+      });
+    }
+    const { body: { data: devices } } = await api("get", "/dispositivos", 200, undefined, demoToken);
+    expect(devices.map(item => item.nome).sort()).toEqual(simulatedPlants.map(([name]) => "Simulador · " + name).sort());
+  } finally {
+    if (demo?.exitCode === null) {
+      demo.send("encerrar", () => {});
+      const timeout = setTimeout(() => demo.kill(), 3000);
+      try { await exit; } finally { clearTimeout(timeout); }
+    }
+    await service.stop();
+    broker.kill();
+  }
+}, 45000);
