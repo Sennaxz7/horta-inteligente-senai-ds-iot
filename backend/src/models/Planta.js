@@ -11,6 +11,7 @@ module.exports = (sequelize) =>
       },
       usuarioId: { type: DataTypes.UUID, allowNull: false },
       especieId: { type: DataTypes.UUID, allowNull: true },
+      grupoIrrigacao: DataTypes.STRING(20),
       nome: { type: DataTypes.STRING(120), allowNull: false },
       apelido: { type: DataTypes.STRING(120), allowNull: true },
       dataPlantio: { type: DataTypes.DATEONLY, allowNull: true },

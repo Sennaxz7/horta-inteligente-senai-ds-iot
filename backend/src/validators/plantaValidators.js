@@ -1,6 +1,7 @@
 const { z } = require("zod");
 
 const fases = ["SEMENTE", "GERMINACAO", "MUDA", "VEGETATIVA", "ADULTA"];
+const gruposIrrigacao = ["HORTALICAS"];
 const uuid = z.string().uuid("Informe um UUID válido.");
 const pagination = {
   pagina: z.coerce.number().int().min(1).max(1000000).default(1),
@@ -23,10 +24,12 @@ const details = {
   nome,
   apelido: z.string().trim().min(1).max(120).nullable().optional(),
   dataPlantio: z.iso.date().nullable().optional(),
+  grupoIrrigacao: z.enum(gruposIrrigacao).nullable().optional(),
 };
 
 module.exports = {
   fases,
+  gruposIrrigacao,
   idParams: z.object({ id: uuid }).strict(),
   fotoParams: z.object({ id: uuid, fotoId: uuid }).strict(),
   identificacaoParams: z.object({ id: uuid, identificacaoId: uuid }).strict(),

@@ -14,7 +14,7 @@ module.exports = ({ env, authService, services }) => {
   router.get("/perfis-irrigacao/:id", id, c.obter);
   router.patch("/perfis-irrigacao/:id", id, validate(s.patch), c.atualizar);
   router.delete("/perfis-irrigacao/:id", id, c.arquivar);
-  router.post("/perfis-irrigacao/:id/copia", id, validate(require("zod").z.object({}).strict()), c.copiar);
+  router.post("/perfis-irrigacao/:id/copia", id, validate(s.copy), c.copiar);
   router.get("/plantas/:id/perfil-irrigacao", id, c.consultarVinculo);
   router.put("/plantas/:id/perfil-irrigacao", id, validate(s.bind), c.vincular);
   router.get("/plantas/:id/irrigacoes", id, validate(s.history, "query"), c.historico);

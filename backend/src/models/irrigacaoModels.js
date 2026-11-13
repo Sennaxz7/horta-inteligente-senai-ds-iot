@@ -8,7 +8,8 @@ module.exports = (db) => {
   return {
     PerfilIrrigacao: db.define("PerfilIrrigacao", {
       id: id(), usuarioId: uuid(true), tipo: required(T.STRING(20)), nome: required(T.STRING(120)),
-      especieId: uuid(), fase: required(T.STRING(20)),
+      especieId: uuid(true), fase: required(T.STRING(20)),
+      grupoIrrigacao: T.STRING(20), escalaUmidade: T.STRING(30),
       umidadeMinima: required(T.DOUBLE), umidadeAlvo: required(T.DOUBLE),
       duracaoMaximaSegundos: required(T.INTEGER), intervaloMinimoSegundos: required(T.INTEGER),
       fonte: required(T.TEXT), observacao: T.TEXT,

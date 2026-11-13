@@ -7,7 +7,9 @@ class IrrigacaoController {
   obter = async (req, res) => res.json({ data: { perfil: await this.profiles.get(req.validatedParams.id, req.usuario.id) } });
   criar = async (req, res) => res.status(201).json({ data: { perfil: await this.profiles.create(req.usuario.id, req.validatedBody) } });
   atualizar = async (req, res) => res.json({ data: { perfil: await this.profiles.update(req.validatedParams.id, req.usuario.id, req.validatedBody) } });
-  copiar = async (req, res) => res.status(201).json({ data: { perfil: await this.profiles.copy(req.validatedParams.id, req.usuario.id) } });
+  copiar = async (req, res) => res.status(201).json({
+    data: { perfil: await this.profiles.copy(req.validatedParams.id, req.usuario.id, req.validatedBody.especieId) },
+  });
   arquivar = async (req, res) => {
     await this.profiles.archive(req.validatedParams.id, req.usuario.id);
     res.status(204).end();

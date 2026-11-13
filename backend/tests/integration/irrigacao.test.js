@@ -102,6 +102,44 @@ test("sugestões exigem espécie, filtros coerentes e não expõem plantas de te
   await api("put", `/plantas/${plantaId}/perfil-irrigacao`, 409, { perfilIrrigacaoId: p.id });
 });
 
+test("padrões de Hortaliças são escolhidos por fase e cedem lugar a um perfil pessoal válido", async () => {
+  const { body: { data: catalog } } = await api("get", "/perfis-irrigacao?grupoIrrigacao=HORTALICAS", 200);
+  const byPhase = Object.fromEntries(catalog.map(profile => [profile.fase, profile]));
+  expect(Object.keys(byPhase).sort()).toEqual(["ADULTA", "GERMINACAO", "MUDA", "SEMENTE", "VEGETATIVA"]);
+  expect(byPhase.VEGETATIVA).toMatchObject({
+    umidadeMinima: 20.51, umidadeAlvo: 23.41, escalaUmidade: "VOLUMETRICA",
+    duracaoMaximaSegundos: 2, intervaloMinimoSegundos: 15,
+  });
+
+  const plant = (await api("post", "/plantas", 201, {
+    nome: "Hortaliça de teste", grupoIrrigacao: "HORTALICAS", faseAtual: "SEMENTE",
+  })).body.data.planta;
+  const path = `/plantas/${plant.id}/perfil-irrigacao`;
+  const current = async () => (await api("get", path, 200)).body.data;
+  expect(await current()).toMatchObject({
+    origem: "PADRAO_GRUPO", vinculo: null, perfilAplicado: { id: byPhase.SEMENTE.id },
+  });
+
+  await api("post", `/plantas/${plant.id}/crescimento`, 201, { fase: "GERMINACAO" });
+  expect((await current()).perfilAplicado.id).toBe(byPhase.GERMINACAO.id);
+  await api("put", `/plantas/${plant.id}/especie`, 200, { especieId });
+
+  await api("post", `/perfis-irrigacao/${byPhase.GERMINACAO.id}/copia`, 422, {});
+  const { body: { data: { perfil: personal } } } = await api("post", `/perfis-irrigacao/${byPhase.GERMINACAO.id}/copia`, 201, { especieId });
+  expect(personal).toMatchObject({ especieId, grupoIrrigacao: null, escalaUmidade: "GRAVIMETRICA_BANDEJA" });
+  await validateProfile(personal.id);
+  await api("put", path, 200, { perfilIrrigacaoId: personal.id });
+  expect(await current()).toMatchObject({ origem: "ASSOCIADO", perfilAplicado: { id: personal.id } });
+
+  await api("post", `/plantas/${plant.id}/crescimento`, 201, { fase: "MUDA" });
+  expect(await current()).toMatchObject({
+    origem: "PADRAO_GRUPO", necessitaRevisao: true, motivos: ["FASE_ALTERADA"],
+    perfilAplicado: { id: byPhase.MUDA.id, escalaUmidade: "CAPACIDADE_RETENCAO" },
+  });
+  await api("patch", `/plantas/${plant.id}`, 200, { grupoIrrigacao: null });
+  expect((await current()).perfilAplicado).toBeNull();
+});
+
 test("arquivamento é idempotente, preserva vínculo e impede alterações e cópias", async () => {
   const p = await createProfile({ fase: "VEGETATIVA" }); await validateProfile(p.id);
   await api("put", `/plantas/${plantaId}/perfil-irrigacao`, 200, { perfilIrrigacaoId: p.id });

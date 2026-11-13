@@ -13,7 +13,8 @@ async function start() {
     const models = initializeModels(database);
     const { Usuario } = models;
     await database.authenticate();
-    const tables = await database.getQueryInterface().showAllTables();
+    const schema = database.getQueryInterface();
+    const tables = await schema.showAllTables();
     const requiredTables = [
       "usuarios",
       "especies",
@@ -25,7 +26,8 @@ async function start() {
       "mqtt_dispositivos", "mqtt_zonas", "mqtt_mensagens", "mqtt_configuracoes",
       "perfis_irrigacao", "plantas_perfis_irrigacao", "registros_irrigacao",
     ];
-    if (requiredTables.some((table) => !tables.includes(table)))
+    if (requiredTables.some((table) => !tables.includes(table)) ||
+        !(await schema.describeTable("plantas")).grupo_irrigacao)
       throw new Error("Migrations pendentes. Execute npm run db:migrate.");
     const authService = new AuthService({ Usuario, env });
     await authService.initialize();

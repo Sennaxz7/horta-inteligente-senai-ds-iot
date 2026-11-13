@@ -1,7 +1,7 @@
 const { Op } = require("sequelize");
 const AppError = require("../utils/AppError");
 const { pageOptions, paginated } = require("../utils/pagination");
-const { create: createSchema } = require("../validators/irrigacaoValidators");
+const { create: createSchema, profileFields } = require("../validators/irrigacaoValidators");
 
 class PerfilIrrigacaoService {
   constructor({ models, database, plantaService, catalogoService }) {
@@ -26,7 +26,7 @@ class PerfilIrrigacaoService {
 
   async list(usuarioId, query) {
     const where = { ...this.visibility(usuarioId), arquivadoEm: query.arquivados ? { [Op.ne]: null } : null };
-    for (const field of ["especieId", "fase", "tipo", "statusValidacao"]) {
+    for (const field of ["especieId", "fase", "tipo", "statusValidacao", "grupoIrrigacao"]) {
       if (query[field]) where[field] = query[field];
     }
     if (query.plantaId) {
@@ -70,7 +70,7 @@ class PerfilIrrigacaoService {
       this.editable(profile, usuarioId);
       const { statusValidacao, ...fields } = input;
       const parsed = createSchema.safeParse({
-        ...Object.fromEntries(["nome", "especieId", "fase", "umidadeMinima", "umidadeAlvo", "duracaoMaximaSegundos", "intervaloMinimoSegundos", "fonte", "observacao"].map(k => [k, profile[k]])),
+        ...Object.fromEntries(profileFields.map(k => [k, profile[k]])),
         ...fields,
       });
       if (!parsed.success) throw new AppError(422, "VALIDATION_ERROR", "Verifique os parâmetros do perfil.", parsed.error.issues.map(i => ({ campo: i.path.join("."), mensagem: i.message })));
@@ -97,11 +97,18 @@ class PerfilIrrigacaoService {
     });
   }
 
-  async copy(id, usuarioId) {
+  async copy(id, usuarioId, especieId) {
     return this.database.transaction(async transaction => {
       const source = await this.get(id, usuarioId, transaction, true);
       if (source.arquivadoEm) throw new AppError(409, "PROFILE_ARCHIVED", "O perfil está arquivado.");
-      const fields = Object.fromEntries(["nome", "especieId", "fase", "umidadeMinima", "umidadeAlvo", "duracaoMaximaSegundos", "intervaloMinimoSegundos", "fonte", "observacao"].map(k => [k, source[k]]));
+      const fields = Object.fromEntries(profileFields.map(k => [k, source[k]]));
+      if (source.grupoIrrigacao) {
+        if (!especieId) throw new AppError(422, "PROFILE_COPY_SPECIES_REQUIRED", "Escolha a espécie da cópia pessoal.");
+        await this.catalogoService.getSpecies(especieId, transaction);
+        fields.especieId = especieId;
+      } else if (especieId && especieId !== source.especieId) {
+        throw new AppError(422, "PROFILE_COPY_SPECIES_MISMATCH", "Use a espécie do perfil que está sendo copiado.");
+      }
       return this.models.PerfilIrrigacao.create({ ...fields, usuarioId, tipo: "PESSOAL", statusValidacao: "RASCUNHO", versao: 1 }, { transaction });
     });
   }
@@ -110,17 +117,39 @@ class PerfilIrrigacaoService {
     // Uma visão consistente da planta, vínculo e perfil evita informar revisão obsoleta.
     return this.database.transaction(async transaction => {
       const plant = await this.plantaService.owned(plantaId, usuarioId, { transaction, lock: true });
-      const link = await this.models.PlantaPerfilIrrigacao.findByPk(plantaId, { transaction });
-      if (!link) return { perfil: null, vinculo: null, necessitaRevisao: false, motivos: [] };
-      const profile = await this.get(link.perfilIrrigacaoId, usuarioId, transaction, true);
-      const motivos = [];
-      if (profile.arquivadoEm) motivos.push("PERFIL_ARQUIVADO");
-      if (profile.statusValidacao !== "VALIDADO") motivos.push("PERFIL_NAO_VALIDADO");
-      if (profile.versao !== link.versao) motivos.push("VERSAO_ALTERADA");
-      if (plant.especieId !== link.snapshot.especieId) motivos.push("ESPECIE_ALTERADA");
-      if (plant.faseAtual !== link.snapshot.fase) motivos.push("FASE_ALTERADA");
-      return { perfil: profile, vinculo: link, necessitaRevisao: motivos.length > 0, motivos };
+      return this.resolveForPlant(plant, usuarioId, transaction);
     });
+  }
+
+  async resolveForPlant(plant, usuarioId, transaction) {
+    const lock = transaction.LOCK.UPDATE;
+    const vinculo = await this.models.PlantaPerfilIrrigacao.findByPk(plant.id, { transaction });
+    const perfil = vinculo && await this.models.PerfilIrrigacao.findOne({
+      where: { id: vinculo.perfilIrrigacaoId, [Op.or]: [{ usuarioId }, { tipo: "REFERENCIA" }] },
+      transaction, lock,
+    });
+    const motivos = [];
+    if (vinculo) {
+      if (!perfil || perfil.statusValidacao !== "VALIDADO") motivos.push("PERFIL_NAO_VALIDADO");
+      if (perfil?.arquivadoEm) motivos.push("PERFIL_ARQUIVADO");
+      if (perfil && perfil.versao !== vinculo.versao) motivos.push("VERSAO_ALTERADA");
+      if (plant.especieId !== vinculo.snapshot.especieId) motivos.push("ESPECIE_ALTERADA");
+      if (plant.faseAtual !== vinculo.snapshot.fase) motivos.push("FASE_ALTERADA");
+    }
+    const necessitaRevisao = motivos.length > 0;
+    let perfilAplicado = perfil && !necessitaRevisao ? vinculo.snapshot : null;
+    let origem = perfilAplicado ? "ASSOCIADO" : null;
+    if (!perfilAplicado && plant.grupoIrrigacao) {
+      perfilAplicado = await this.models.PerfilIrrigacao.findOne({
+        where: {
+          tipo: "REFERENCIA", grupoIrrigacao: plant.grupoIrrigacao, fase: plant.faseAtual,
+          statusValidacao: "VALIDADO", arquivadoEm: null,
+        },
+        transaction, lock,
+      });
+      if (perfilAplicado) origem = "PADRAO_GRUPO";
+    }
+    return { perfil, vinculo, necessitaRevisao, motivos, perfilAplicado, origem };
   }
 
   async bind(plantaId, usuarioId, perfilIrrigacaoId) {
@@ -133,6 +162,9 @@ class PerfilIrrigacaoService {
       const profile = await this.get(perfilIrrigacaoId, usuarioId, transaction, true);
       if (profile.arquivadoEm || profile.statusValidacao !== "VALIDADO") {
         throw new AppError(409, "PROFILE_NOT_AVAILABLE", "Selecione um perfil ativo e validado.");
+      }
+      if (profile.grupoIrrigacao) {
+        throw new AppError(409, "GROUP_PROFILE_AUTOMATIC", "O padrão do grupo é selecionado automaticamente pela fase.");
       }
       if (profile.especieId !== plant.especieId || profile.fase !== plant.faseAtual) {
         throw new AppError(409, "PROFILE_INCOMPATIBLE", "O perfil deve corresponder à espécie e fase da planta.");
