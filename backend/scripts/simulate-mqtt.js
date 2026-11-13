@@ -47,39 +47,63 @@ let irrigation;
 let irrigationTimer;
 let appliedConfig;
 let lastIrrigationEndedAt;
+let nextProfileReading = "ACIMA_MINIMA";
+let stopping = false;
 const send = (suffix, data, retain = false) =>
   client.publish(`${base}/${suffix}`, JSON.stringify(data), { qos: 1, retain });
+function finishIrrigation(result) {
+  const { execution, duration } = irrigation;
+  send("eventos", {
+    ...envelope(), ...execution, tipo: "IRRIGACAO_FINALIZADA", resultado: result,
+    ...(result === "CONCLUIDA" ? { duracaoSegundos: duration } : { motivoFalha: "Simulação interrompida." }),
+  });
+  irrigation = null;
+  lastIrrigationEndedAt = Date.now();
+  if (result === "CONCLUIDA" && execution.configuracaoId && appliedConfig?.configuracaoId === execution.configuracaoId) {
+    nextProfileReading = "ALVO";
+  }
+}
+
 function readings() {
   if (!client.connected) return;
-  // Distâncias e umidades fictícias para testar a cadeia de dados.
-  const umidadeSoloPercentual = [45, 43, 41, 39, 37][tick % 5];
+  const profile = appliedConfig?.irrigacao;
+  let umidadeSoloPercentual = [45, 43, 41, 39, 37][tick % 5];
+  if (profile) {
+    const { umidadeMinima, umidadeAlvo, escalaUmidade } = profile;
+    if (nextProfileReading === "ACIMA_MINIMA") {
+      umidadeSoloPercentual = escalaUmidade === "VOLUMETRICA"
+        ? Math.ceil(umidadeAlvo)
+        : Number(((umidadeMinima + umidadeAlvo) / 2).toFixed(2));
+    } else if (nextProfileReading === "ALVO") {
+      umidadeSoloPercentual = umidadeAlvo;
+    } else {
+      umidadeSoloPercentual = Math.max(0, Math.ceil(umidadeMinima) - 1);
+    }
+    nextProfileReading = "ABAIXO_MINIMA";
+  }
   send("sensores", {
     ...envelope(),
     zonaId: zoneId,
     umidadeSoloPercentual,
     distanciaAguaCm: [15, 17, 20, 25, 29][tick % 5],
+    ...(profile ? { configuracaoId: appliedConfig.configuracaoId } : {}),
   });
   tick++;
   // Demonstração opcional: publica eventos, sem controlar bomba ou inferir consumo.
-  const profile = appliedConfig?.irrigacao;
   const shouldSimulate = profile
     ? umidadeSoloPercentual < profile.umidadeMinima &&
       (lastIrrigationEndedAt === undefined ||
        Date.now() - lastIrrigationEndedAt >= profile.intervaloMinimoSegundos * 1000)
     : !appliedConfig?.modo && tick % 6 === 0;
   if (process.env.MQTT_SIM_IRRIGACOES === "true" && !irrigation && shouldSimulate) {
-    irrigation = randomUUID();
-    const execution = { zonaId: zoneId, irrigacaoId: irrigation,
+    const execution = { zonaId: zoneId, irrigacaoId: randomUUID(),
       ...(profile ? { configuracaoId: appliedConfig.configuracaoId } : {}) };
     const duration = profile ? Math.min(2, profile.duracaoMaximaSegundos) : 2;
+    irrigation = { execution, duration };
     send("eventos", { ...envelope(), ...execution, tipo: "IRRIGACAO_INICIADA" });
-    irrigationTimer = setTimeout(() => {
-      send("eventos", { ...envelope(), ...execution, tipo: "IRRIGACAO_FINALIZADA", resultado: "CONCLUIDA", duracaoSegundos: duration });
-      lastIrrigationEndedAt = Date.now();
-      irrigation = null;
-    }, duration * 1000);
+    irrigationTimer = setTimeout(() => finishIrrigation("CONCLUIDA"), duration * 1000);
   }
-  console.log(`Leitura simulada ${tick} publicada.`);
+  console.log(`Leitura simulada ${tick}: ${umidadeSoloPercentual}% de umidade.`);
 }
 function schedule() {
   clearInterval(timer);
@@ -92,6 +116,7 @@ client.on("connect", () => {
     send("status", { ...envelope(), estado: "ONLINE" }, true);
     readings();
     schedule();
+    process.send?.("mqtt-pronto");
     console.log("Simulador conectado. Automação física desabilitada.");
   });
 });
@@ -105,22 +130,36 @@ client.on("message", (topic, payload, packet) => {
   }
   const parsed = configMessage.safeParse(data);
   if (!parsed.success || parsed.data.dispositivoId !== deviceId || parsed.data.zonaId !== zoneId) return;
+  const repeated = appliedConfig?.configuracaoId === parsed.data.configuracaoId;
   appliedConfig = parsed.data;
-  intervalMs = data.intervaloLeituraSegundos * 1000;
-  schedule();
   send("config/ack", {
     ...envelope(),
     zonaId: zoneId,
     configuracaoId: data.configuracaoId,
     aplicada: true,
   });
+  if (repeated) return;
+  nextProfileReading = "ACIMA_MINIMA";
+  intervalMs = data.intervaloLeituraSegundos * 1000;
+  if (appliedConfig.irrigacao) readings();
+  schedule();
   console.log("Configuração simulada aplicada:", data.configuracaoId);
 });
 client.on("error", () => console.error("Simulador: falha de conexão MQTT."));
-process.once("SIGINT", () => {
+function stop() {
+  if (stopping) return;
+  stopping = true;
   clearInterval(timer);
   clearTimeout(irrigationTimer);
-  if (!client.connected) return client.end(true);
-  send("status", { ...envelope(), estado: "OFFLINE" }, true);
-  client.end(false);
-});
+  if (client.connected) {
+    if (irrigation) finishIrrigation("FALHA");
+    send("status", { ...envelope(), estado: "OFFLINE" }, true);
+  }
+  client.end(!client.connected, () => { if (process.connected) process.disconnect(); });
+}
+process.once("SIGINT", stop);
+process.once("SIGTERM", stop);
+if (process.send) {
+  process.once("disconnect", stop);
+  process.on("message", message => { if (message === "encerrar") stop(); });
+}

@@ -18,6 +18,7 @@ const overview = `
       leitura.dispositivo_id AS "dispositivoId", leitura.zona_id AS "zonaId",
       leitura.medido_em AS "medidoEm", leitura.dados->'simulado' AS simulado,
       leitura.dados->'umidadeSoloPercentual' AS "umidadeSoloPercentual",
+      leitura.dados->'escalaUmidade' AS "escalaUmidade",
       leitura.dados->'distanciaAguaCm' AS "distanciaAguaCm",
       leitura.dados->'nivelAguaPercentual' AS "nivelAguaPercentual",
       leitura.dados->'nivelAguaValido' AS "nivelAguaValido"
@@ -35,6 +36,7 @@ const overview = `
       r.zona_id AS "zonaId", r.resultado, r.simulado,
       r.configuracao_id AS "configuracaoId",
       r.configuracao_snapshot #> '{irrigacao,perfilIrrigacaoId}' AS "perfilIrrigacaoId",
+      r.configuracao_snapshot #> '{irrigacao,perfilNome}' AS "perfilNome",
       r.configuracao_snapshot #> '{irrigacao,perfilVersao}' AS "perfilVersao",
       COALESCE(r.iniciada_em, r.finalizada_em) AS data,
       r.iniciada_em AS "iniciadaEm", r.finalizada_em AS "finalizadaEm",

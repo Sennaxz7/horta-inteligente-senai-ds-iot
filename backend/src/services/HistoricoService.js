@@ -18,6 +18,7 @@ const timeline = `
     SELECT id, 'LEITURA', medido_em,
       jsonb_build_object('dispositivoId', dispositivo_id, 'zonaId', zona_id,
         'simulado', dados->'simulado', 'umidadeSoloPercentual', dados->'umidadeSoloPercentual',
+        'escalaUmidade', dados->'escalaUmidade',
         'distanciaAguaCm', dados->'distanciaAguaCm', 'nivelAguaPercentual', dados->'nivelAguaPercentual',
         'nivelAguaValido', dados->'nivelAguaValido')
     FROM mqtt_mensagens WHERE planta_id = $plantaId AND tipo = 'sensores'
@@ -29,6 +30,8 @@ const timeline = `
         'duracaoSegundos', duracao_segundos, 'motivoFalha', motivo_falha,
         'configuracaoId', configuracao_id,
         'perfilIrrigacaoId', configuracao_snapshot #> '{irrigacao,perfilIrrigacaoId}',
+        'perfilNome', configuracao_snapshot #> '{irrigacao,perfilNome}',
+        'perfilFase', configuracao_snapshot #> '{irrigacao,fase}',
         'perfilVersao', configuracao_snapshot #> '{irrigacao,perfilVersao}')
     FROM registros_irrigacao WHERE planta_id = $plantaId
   ), filtrados AS (

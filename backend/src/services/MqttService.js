@@ -6,8 +6,8 @@ const AppError = require("../utils/AppError");
 const { pageOptions, paginated } = require("../utils/pagination");
 
 class MqttService {
-  constructor({ models, database, env, irrigacaoService, logger = console, connect = mqtt.connect }) {
-    Object.assign(this, { models, database, env, logger, connect });
+  constructor({ models, database, env, irrigacaoService, perfilIrrigacaoService, logger = console, connect = mqtt.connect }) {
+    Object.assign(this, { models, database, env, logger, connect, perfilIrrigacaoService });
     this.irrigacaoService = irrigacaoService || new (require("./IrrigacaoService"))({ models });
     this.connected = false;
     this.pending = new Set();
@@ -94,6 +94,15 @@ class MqttService {
       if (type === "eventos" && !await this.irrigacaoService.record(data, zone, transaction)) return false;
       const values = { ...data };
       if (type === "sensores") {
+        if (data.configuracaoId) {
+          const readingConfig = await this.models.ConfiguracaoMqtt.findOne({
+            where: { id: data.configuracaoId, dispositivoId: deviceId, zonaId: zone.id, status: "CONFIRMADA" },
+            transaction,
+          });
+          const profile = readingConfig?.dados.irrigacao;
+          if (!profile || profile.plantaId !== zone.plantaId) return false;
+          if (profile.escalaUmidade) values.escalaUmidade = profile.escalaUmidade;
+        }
         values.nivelAguaPercentual = null;
         values.nivelAguaValido = false;
         if (zone.calibracao && data.distanciaAguaCm !== null) {
@@ -228,20 +237,20 @@ class MqttService {
       where: { id: zone.plantaId, usuarioId, arquivadaEm: null }, transaction, lock,
     });
     if (!plant) return { motivo: "SEM_PLANTA_ATIVA" };
-    const link = await this.models.PlantaPerfilIrrigacao.findByPk(plant.id, { transaction });
-    if (!link) return { motivo: "SEM_PERFIL_VINCULADO" };
-    const profile = await this.models.PerfilIrrigacao.findByPk(link.perfilIrrigacaoId, { transaction, lock });
-    if (!profile || (profile.tipo !== "REFERENCIA" && profile.usuarioId !== usuarioId) ||
-        profile.arquivadoEm || profile.statusValidacao !== "VALIDADO" || profile.versao !== link.versao ||
-        !plant.especieId || plant.especieId !== link.snapshot.especieId || plant.faseAtual !== link.snapshot.fase) {
-      return { motivo: "PERFIL_REQUER_REVISAO" };
+    const { perfilAplicado: profile, necessitaRevisao, origem } =
+      await this.perfilIrrigacaoService.resolveForPlant(plant, usuarioId, transaction);
+    if (!profile) {
+      return { motivo: necessitaRevisao ? "PERFIL_REQUER_REVISAO" : "SEM_PERFIL_VINCULADO" };
     }
     const parsed = schemas.irrigationSnapshot.safeParse({
-      plantaId: plant.id, perfilIrrigacaoId: profile.id, perfilVersao: link.versao,
+      plantaId: plant.id, perfilIrrigacaoId: profile.id, perfilVersao: profile.versao,
       especieId: plant.especieId, fase: plant.faseAtual,
-      umidadeMinima: link.snapshot.umidadeMinima, umidadeAlvo: link.snapshot.umidadeAlvo,
-      duracaoMaximaSegundos: link.snapshot.duracaoMaximaSegundos,
-      intervaloMinimoSegundos: link.snapshot.intervaloMinimoSegundos,
+      perfilNome: profile.nome, origem,
+      ...(profile.grupoIrrigacao ? { grupoIrrigacao: profile.grupoIrrigacao } : {}),
+      ...(profile.escalaUmidade ? { escalaUmidade: profile.escalaUmidade } : {}),
+      umidadeMinima: profile.umidadeMinima, umidadeAlvo: profile.umidadeAlvo,
+      duracaoMaximaSegundos: profile.duracaoMaximaSegundos,
+      intervaloMinimoSegundos: profile.intervaloMinimoSegundos,
     });
     return parsed.success ? { snapshot: parsed.data } : { motivo: "PERFIL_REQUER_REVISAO" };
   }

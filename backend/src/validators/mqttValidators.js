@@ -1,4 +1,6 @@
 const { z } = require("zod");
+const { fases, gruposIrrigacao } = require("./plantaValidators");
+const { escalasUmidade } = require("./irrigacaoValidators");
 const uuid = z.string().uuid();
 const percent = z.number().min(0).max(100);
 const time = z.iso
@@ -27,11 +29,16 @@ const config = z
   .strict();
 const irrigationSnapshot = z.object({
   plantaId: uuid, perfilIrrigacaoId: uuid, perfilVersao: z.number().int().positive(),
-  especieId: uuid, fase: z.enum(require("./plantaValidators").fases),
+  especieId: uuid.nullable(), fase: z.enum(fases),
+  perfilNome: z.string().min(1).max(120).optional(),
+  origem: z.enum(["ASSOCIADO", "PADRAO_GRUPO"]).optional(),
+  grupoIrrigacao: z.enum(gruposIrrigacao).optional(),
+  escalaUmidade: z.enum(escalasUmidade).optional(),
   umidadeMinima: percent, umidadeAlvo: percent,
   duracaoMaximaSegundos: z.number().int().min(1).max(86400),
   intervaloMinimoSegundos: z.number().int().min(1).max(2147483647),
-}).strict().refine(v => v.umidadeMinima < v.umidadeAlvo);
+}).strict().refine(v => v.umidadeMinima < v.umidadeAlvo &&
+  (v.origem === "PADRAO_GRUPO" ? Boolean(v.grupoIrrigacao && v.escalaUmidade) : Boolean(v.especieId)));
 const configMessage = config.extend({
   versao: z.literal(1), configuracaoId: uuid, dispositivoId: uuid, zonaId: uuid,
   modo: z.enum(["MONITORAMENTO", "SIMULACAO_IRRIGACAO"]).optional(),
@@ -75,8 +82,10 @@ module.exports = {
       zonaId: uuid,
       umidadeSoloPercentual: percent.nullable(),
       distanciaAguaCm: z.number().positive().max(10000).nullable(),
+      configuracaoId: uuid.optional(),
     })
-    .strict(),
+    .strict()
+    .refine(v => v.simulado || !v.configuracaoId),
   status: z.object({ ...base, estado: z.enum(["ONLINE", "OFFLINE"]) }).strict(),
   eventos: z
     .object({

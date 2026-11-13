@@ -41,7 +41,7 @@ function createServices({ models, database, env, fetchImpl }) {
   const irrigacaoService = new (require("./IrrigacaoService"))({ models, plantaService });
   const perfilIrrigacaoService = new (require("./PerfilIrrigacaoService"))({ models, database, plantaService, catalogoService });
   return {
-    mqttService: new (require("./MqttService"))({ models, database, env, irrigacaoService }),
+    mqttService: new (require("./MqttService"))({ models, database, env, irrigacaoService, perfilIrrigacaoService }),
     perfilIrrigacaoService,
     irrigacaoService,
     catalogoService,
